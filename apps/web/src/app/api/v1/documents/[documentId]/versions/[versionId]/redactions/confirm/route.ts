@@ -1,11 +1,13 @@
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
+import { requireStepUp } from "@/lib/step-up";
 import { getPagePng, putPagePng } from "@/lib/storage";
 import { redactPagePng, recomputeDocumentHashes } from "@/lib/server-hash";
 import { computeChainHash } from "@/lib/chain-hash";
 import { replaceDocumentTiles } from "@/lib/tiles-repo";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { anchorVersionInBackground } from "@/lib/anchor";
 
 export const runtime = "nodejs";
 
@@ -25,6 +27,7 @@ export async function POST(
   let actor;
   try {
     actor = requireRole(req, [Role.POLICE_OFFICER, Role.INVESTIGATING_OFFICER, Role.ADMIN]);
+    requireStepUp(req, actor);
   } catch (err) {
     if (err instanceof RbacError) return rbacErrorResponse(err);
     throw err;
@@ -88,7 +91,7 @@ export async function POST(
   }
   const storageUri = `s3://${process.env.MINIO_BUCKET ?? "digivault-evidence"}/${storagePrefix}/`;
 
-  const newVersion = await prisma.documentVersion.create({
+  let newVersion = await prisma.documentVersion.create({
     data: {
       documentId,
       versionNo,
@@ -124,12 +127,39 @@ export async function POST(
 
   await prisma.document.update({ where: { id: documentId }, data: { currentVersionId: newVersion.id } });
 
+  // Only now — pages, tiles and flags all written — is this a complete
+  // redacted version that share links may serve (see shares/[token]/download).
+  newVersion = await prisma.documentVersion.update({
+    where: { id: newVersion.id },
+    data: { status: "READY", isRedacted: true },
+  });
+
   await writeAuditLog({
     actorId: actor.userId,
     action: "CONFIRM_REDACTIONS",
     targetId: newVersion.id,
+    targetType: "DocumentVersion",
     sourceIp: sourceIpFromRequest(req),
   });
+  await writeAuditLog({
+    actorId: actor.userId,
+    action: "CONFIRM_REDACTIONS_DETAIL",
+    targetId: newVersion.id,
+    targetType: "DocumentVersion",
+    targetMeta: {
+      priorVersionId: priorVersion.id,
+      priorVersionNo: priorVersion.versionNo,
+      versionNo,
+      redactedTileIndices: [...body.confirmed_tile_indices].sort((a, b) => a - b),
+      tilesByPage: Object.fromEntries(
+        [...tilesByPage].map(([page, cells]) => [page, cells.map((c) => `R${c.row}C${c.col}`)])
+      ),
+    },
+    sourceIp: sourceIpFromRequest(req),
+  });
+
+  // Every version is anchored (CLAUDE.md rule 3); never fails the confirm.
+  anchorVersionInBackground(newVersion.id, actor.userId, sourceIpFromRequest(req));
 
   return Response.json(
     {
@@ -139,6 +169,7 @@ export async function POST(
       chain_hash: chainHash,
       merkle_root: serverComputed.merkleRoot,
       status: newVersion.status,
+      anchor_status: "PENDING",
       redacted_tile_count: body.confirmed_tile_indices.length,
     },
     { status: 201 }

@@ -1,13 +1,18 @@
-// One-off manual integration smoke test for the step-4 API routes,
-// deliberately reimplementing the tile-hash/Merkle algorithm independently
-// (plain Node crypto, not importing @digivault/crypto-core) so this is a
-// real cross-check against docs/03-crypto-and-merkle-spec.md rather than a
-// tautological "same code testing itself" comparison. Not a deliverable,
-// not wired into any test runner — thrown away after this session.
+// Manual API-level smoke test, deliberately reimplementing the
+// tile-hash/Merkle algorithm independently (plain Node crypto, not
+// importing @digivault/crypto-core) so this is a real cross-check against
+// docs/03-crypto-and-merkle-spec.md rather than a tautological "same code
+// testing itself" comparison. Also covers login, RBAC, step-up, automatic
+// anchoring and redacted-only sharing. Not wired into any test runner.
+//
+// Prereqs: `node prisma/seed-for-testing.mjs`, web app on E2E_BASE_URL
+// (default http://localhost:3000). No arguments.
 import sharp from "sharp";
 import { createHash } from "node:crypto";
 
-const BASE = "http://localhost:3100";
+const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+const INVESTIGATOR = { serviceNumber: "DL/2019/3301", pin: "223344" };
+const COURT_OFFICIAL = { serviceNumber: "MH/2020/5512", pin: "334455" };
 const GRID_SIZE = 20;
 const SIZE = 400; // -> exactly 20x20 px tiles, no edge clamping
 
@@ -66,14 +71,37 @@ async function buildTestPage() {
   return { png, tiles, clientHash, merkleRoot };
 }
 
-async function login(userId) {
-  const res = await fetch(`${BASE}/api/auth/dev-login`, {
+async function postJson(path, body, headers = {}) {
+  const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId }),
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
   });
-  const body = await res.json();
+  return { res, body: await res.json().catch(() => null) };
+}
+
+async function login({ serviceNumber, pin }) {
+  const { res, body } = await postJson("/api/auth/login", { serviceNumber, pin });
+  if (!res.ok) throw new Error(`Login failed for ${serviceNumber}: ${res.status} ${JSON.stringify(body)}`);
   return body.token;
+}
+
+async function stepUpToken(sessionToken, pin) {
+  const { body } = await postJson("/api/auth/verify-pin", { pin }, { Authorization: `Bearer ${sessionToken}` });
+  return body.step_up_token;
+}
+
+async function waitForAnchorSettled(token, documentId, versionId, timeoutMs = 120000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${versionId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = await res.json();
+    if (body.anchor && body.anchor.status !== "PENDING") return body.anchor;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return null;
 }
 
 async function tamperOnePixelTile(png) {
@@ -119,9 +147,22 @@ function buildUploadForm({ png, tiles, clientHash, merkleRoot, caseId, tamper })
 async function main() {
   const results = {};
 
-  const investigatorToken = await login(process.argv[2]);
-  const courtToken = await login(process.argv[3]);
-  const caseId = process.argv[4];
+  // 0. Login: wrong PIN -> 401 with the generic message.
+  {
+    const { res, body } = await postJson("/api/auth/login", { serviceNumber: INVESTIGATOR.serviceNumber, pin: "000000" });
+    results.login_wrong_pin_401 = res.status === 401 && body.message === "Invalid service number or PIN";
+  }
+
+  const investigatorToken = await login(INVESTIGATOR);
+  const courtToken = await login(COURT_OFFICIAL);
+  const auth = { Authorization: `Bearer ${investigatorToken}` };
+
+  const { body: createdCase } = await postJson(
+    "/api/v1/cases",
+    { case_number: `SMOKE/${Date.now()}`, case_type: "FIR", department: "Women Safety Division" },
+    auth
+  );
+  const caseId = createdCase.case_id ?? createdCase.id;
 
   const testPage = await buildTestPage();
 
@@ -177,29 +218,61 @@ async function main() {
     documentId = body.document_id;
   }
 
-  // 5. Confirm redaction on tile 0.
+  // 5. Upload is READY immediately; anchoring runs on its own and must settle.
   {
-    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${versionId}/redactions/confirm`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${investigatorToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ confirmed_tile_indices: [0] }),
-    });
-    const body = await res.json();
-    results.confirm_redaction_201 = res.status === 201;
-    results.confirm_redaction_new_root_differs = body.merkle_root !== testPage.merkleRoot;
+    const anchor = await waitForAnchorSettled(investigatorToken, documentId, versionId);
+    results.auto_anchor_settled = anchor !== null;
+    results.auto_anchor_status = anchor?.status ?? "TIMEOUT";
+    results.auto_anchor_ok = anchor?.status === "ANCHORED";
   }
 
-  // 6. Proof before anchoring -> 409 NOT_ANCHORED (expected — no live RPC in this sandbox).
+  // 6. Sharing before any redaction -> 403 (F-03).
   {
-    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${versionId}/proof`, {
-      headers: { Authorization: `Bearer ${investigatorToken}` },
-    });
-    const body = await res.json();
-    results.proof_not_anchored_409 = res.status === 409 && body.error === "NOT_ANCHORED";
+    const { res } = await postJson(
+      `/api/v1/documents/${documentId}/shares`,
+      { recipientLabel: "Smoke", expiresAt: new Date(Date.now() + 86400000).toISOString(), maxViews: 3 },
+      auth
+    );
+    results.share_blocked_before_redaction_403 = res.status === 403;
+  }
+
+  // 7. Confirm redaction on tile 0: rejected without step-up, accepted with it.
+  let redactedVersionId;
+  {
+    const path = `/api/v1/documents/${documentId}/versions/${versionId}/redactions/confirm`;
+    const noStepUp = await postJson(path, { confirmed_tile_indices: [0] }, auth);
+    results.confirm_without_step_up_401 = noStepUp.res.status === 401 && noStepUp.body.error === "STEP_UP_REQUIRED";
+
+    const stepUp = await stepUpToken(investigatorToken, INVESTIGATOR.pin);
+    const { res, body } = await postJson(path, { confirmed_tile_indices: [0] }, { ...auth, "X-StepUp-Token": stepUp });
+    results.confirm_redaction_201 = res.status === 201;
+    results.confirm_redaction_new_root_differs = body.merkle_root !== testPage.merkleRoot;
+    redactedVersionId = body.document_version_id;
+  }
+
+  // 8. Share now allowed, and the download serves the redacted version.
+  {
+    const { res, body } = await postJson(
+      `/api/v1/documents/${documentId}/shares`,
+      { recipientLabel: "Smoke", expiresAt: new Date(Date.now() + 86400000).toISOString(), maxViews: 3 },
+      auth
+    );
+    results.share_after_redaction_201 = res.status === 201;
+    const dl = await fetch(`${BASE}/api/v1/shares/${body.token}/download`);
+    results.share_serves_redacted_v2 =
+      dl.status === 200 && (dl.headers.get("content-disposition") ?? "").includes("-v2.pdf");
+  }
+
+  // 9. Redacted version is auto-anchored too.
+  {
+    const anchor = await waitForAnchorSettled(investigatorToken, documentId, redactedVersionId);
+    results.redacted_auto_anchor_status = anchor?.status ?? "TIMEOUT";
   }
 
   console.log(JSON.stringify(results, null, 2));
-  const allPassed = Object.values(results).every(Boolean);
+  // Anchor outcomes depend on the RPC being reachable: reported, not asserted.
+  const informational = new Set(["auto_anchor_status", "auto_anchor_ok", "redacted_auto_anchor_status"]);
+  const allPassed = Object.entries(results).every(([k, v]) => informational.has(k) || Boolean(v));
   console.log(allPassed ? "\nSMOKE TEST PASSED" : "\nSMOKE TEST FAILED");
   process.exit(allPassed ? 0 : 1);
 }

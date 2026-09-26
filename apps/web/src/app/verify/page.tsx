@@ -12,16 +12,24 @@ import { hashTiles, buildMerkleTree, type TileHash } from "@digivault/crypto-cor
  *     and this page calls useAuth/RequireAuth nowhere in its tree.
  *   - No calls to DigiVault's own backend for the verification logic. This
  *     file makes exactly one kind of network call: a public JSON-RPC read
- *     against Polygon Amoy, via ethers, using only the contract address
- *     and document_version_id present in the proof file the user supplied.
- *     No fetch() to this app's own /api/* anywhere below.
+ *     against Polygon Amoy, via ethers, for the document_version_id in the
+ *     proof file. No fetch() to this app's own /api/* anywhere below.
+ *   - The contract, chain and anchoring account are hardcoded below, never
+ *     read from the proof file (F-02): a forger who controls the proof file
+ *     could otherwise point it at their own contract holding any root.
  *   - MinIO is deliberately never checked here — it's the insider-threat
  *     anchor, not something an external verifier should need to trust.
- *   - Exactly two outcomes are ever shown: VERIFIED or MISMATCH. Anything
- *     that prevents a definitive VERIFIED (bad file, unreachable RPC, no
- *     on-chain anchor found, a real hash mismatch) renders as MISMATCH —
- *     fail-closed, no ambiguous third state.
+ *   - Three outcomes: VERIFIED; UNTRUSTED (the proof or RPC points at a
+ *     chain/contract/anchorer other than DigiVault's official ones); or
+ *     MISMATCH for anything else that prevents a definitive VERIFIED (bad
+ *     file, unreachable RPC, no anchor, a real hash mismatch). Fail-closed.
  */
+
+// Official EvidenceAnchor deployment (packages/contracts/deployments/amoy.json).
+// If the contract is ever redeployed, update these three together.
+const TRUSTED_CONTRACT = "0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b";
+const TRUSTED_CHAIN_ID = 80002;
+const TRUSTED_ANCHORER = "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873";
 
 const DEFAULT_RPC_URL = process.env.NEXT_PUBLIC_AMOY_RPC_URL || "https://polygon-amoy.drpc.org";
 const ANCHOR_ABI = [
@@ -48,6 +56,7 @@ type Result =
   | { outcome: "idle" }
   | { outcome: "checking" }
   | { outcome: "verified"; proof: ProofFile }
+  | { outcome: "untrusted"; reason: string; detail?: string }
   | { outcome: "mismatch"; reason: string; detail?: string };
 
 function shortHash(value: string): string {
@@ -116,8 +125,28 @@ export default function VerifyPage() {
       if (pngFiles.length === 0) throw new Error("No page PNG file(s) provided.");
 
       const proof = JSON.parse(await proofFile.text()) as ProofFile;
-      if (!proof.merkle_root || !proof.anchor?.contract_address) {
+      if (!proof.merkle_root || !proof.document_version_id) {
         throw new Error("Proof file is missing required fields.");
+      }
+
+      // 0. The proof's own contract/chain fields are never used for the
+      // lookup, but a proof that names anything else is rejected outright
+      // rather than silently checked against the official contract.
+      if (Number(proof.anchor?.polygon_chain_id) !== TRUSTED_CHAIN_ID) {
+        setResult({
+          outcome: "untrusted",
+          reason: "Invalid — proof references an untrusted chain.",
+          detail: `proof chain_id=${proof.anchor?.polygon_chain_id} expected=${TRUSTED_CHAIN_ID}`,
+        });
+        return;
+      }
+      if (String(proof.anchor?.contract_address ?? "").toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) {
+        setResult({
+          outcome: "untrusted",
+          reason: "Invalid — proof references an untrusted contract.",
+          detail: `proof contract=${proof.anchor?.contract_address} official=${TRUSTED_CONTRACT}`,
+        });
+        return;
       }
 
       // 1. Recompute the Merkle root from the PNG(s) actually supplied —
@@ -139,14 +168,34 @@ export default function VerifyPage() {
 
       // 2. Check the recomputed root against the public Polygon Amoy
       // record directly — the only source of truth that matters here.
+      // The RPC endpoint is user-editable (advanced options), so confirm it
+      // actually serves Polygon Amoy before trusting anything it returns.
       const provider = new JsonRpcProvider(rpcUrl);
-      const contract = new Contract(proof.anchor.contract_address, ANCHOR_ABI, provider);
+      const { chainId } = await provider.getNetwork();
+      if (Number(chainId) !== TRUSTED_CHAIN_ID) {
+        setResult({
+          outcome: "untrusted",
+          reason: "Invalid — the RPC endpoint is not Polygon Amoy.",
+          detail: `rpc chain_id=${chainId} expected=${TRUSTED_CHAIN_ID}`,
+        });
+        return;
+      }
+      const contract = new Contract(TRUSTED_CONTRACT, ANCHOR_ABI, provider);
       const documentVersionIdBytes32 = keccak256(toUtf8Bytes(proof.document_version_id));
-      const [onChainRootRaw] = await contract.getAnchor(documentVersionIdBytes32);
+      const [onChainRootRaw, , anchoredBy] = await contract.getAnchor(documentVersionIdBytes32);
       const onChainRoot = (onChainRootRaw as string).replace(/^0x/, "").toLowerCase();
 
       if (onChainRoot === "0".repeat(64)) {
         setResult({ outcome: "mismatch", reason: "No anchor found on-chain for this document version." });
+        return;
+      }
+
+      if ((anchoredBy as string).toLowerCase() !== TRUSTED_ANCHORER.toLowerCase()) {
+        setResult({
+          outcome: "untrusted",
+          reason: "Invalid — anchor was not written by the official DigiVault account.",
+          detail: `anchoredBy=${anchoredBy} official=${TRUSTED_ANCHORER}`,
+        });
         return;
       }
 
@@ -276,6 +325,51 @@ export default function VerifyPage() {
               </div>
               <div>anchored_at: <code style={{ color: "#60a5fa", fontFamily: "monospace" }}>{result.proof.anchor.anchored_at}</code></div>
             </div>
+            <div
+              style={{
+                marginTop: 16,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 12px",
+                border: "1px solid rgba(16,185,129,0.5)",
+                borderRadius: 999,
+                background: "rgba(16,185,129,0.12)",
+                color: "#6ee7b7",
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              <span aria-hidden>🛡</span>
+              Verified against official DigiVault contract
+              <a
+                href={`https://amoy.polygonscan.com/address/${TRUSTED_CONTRACT}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "#60a5fa", fontFamily: "monospace", fontWeight: 400 }}
+              >
+                {shortHash(TRUSTED_CONTRACT)}
+              </a>
+            </div>
+          </div>
+        )}
+
+        {result.outcome === "untrusted" && (
+          <div className="result-card" style={{ marginTop: 24, padding: 20, background: "rgba(239,68,68,0.14)", border: "2px solid #ef4444", borderRadius: 8 }}>
+            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 2 2 20h20L12 2z" stroke="#ef4444" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M12 9v5" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" />
+                <circle cx="12" cy="17" r="1.2" fill="#ef4444" />
+              </svg>
+              <div>
+                <h2 style={{ margin: 0, color: "#fecaca", fontSize: 20 }}>{result.reason}</h2>
+                <p style={{ margin: "4px 0 0", color: "#fca5a5", fontSize: 13 }}>
+                  This proof was not checked against the official DigiVault record. Treat the document as unverified.
+                </p>
+              </div>
+            </div>
+            {result.detail && <p style={{ margin: "14px 0 0", fontFamily: "monospace", fontSize: 11, color: "#9ca3af", overflowWrap: "anywhere" }}>{result.detail}</p>}
           </div>
         )}
 

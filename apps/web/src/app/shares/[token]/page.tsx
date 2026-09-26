@@ -1,4 +1,6 @@
+import { headers } from "next/headers";
 import { resolveShareView } from "@/lib/shares-repo";
+import { clientIpFromHeaders } from "@/lib/request-ip";
 import { ShieldIcon } from "@/lib/client/shield-icon";
 
 function formatDate(date: Date): string {
@@ -32,14 +34,14 @@ function ErrorScreen({ message }: { message: string }) {
 }
 
 export default async function SharedDocumentPage({ params }: { params: { token: string } }) {
-  const result = await resolveShareView(params.token);
+  const result = await resolveShareView(params.token, clientIpFromHeaders(headers()));
 
   if (result.status !== "OK") {
     return <ErrorScreen message={ERROR_MESSAGES[result.status]} />;
   }
 
   const { document, recipientLabel, expiresAt, viewsRemaining } = result;
-  const version = document.latestAnchoredVersion;
+  const version = document.redactedVersion;
   const anchored = Boolean(version?.polygonTxHash);
 
   return (

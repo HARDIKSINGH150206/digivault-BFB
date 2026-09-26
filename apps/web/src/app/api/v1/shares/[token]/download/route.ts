@@ -1,7 +1,8 @@
 import { PDFDocument } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
 import { getPagePng } from "@/lib/storage";
-import { checkShareDownloadable } from "@/lib/shares-repo";
+import { checkShareDownloadable, getLatestRedactedVersion } from "@/lib/shares-repo";
+import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -20,14 +21,15 @@ const ERROR_RESPONSES = {
  * storageUri (s3://...) is a MinIO-internal key, not a fetchable URL, and the
  * only routes that can read page PNGs out of MinIO (.../pages/{pageIndex})
  * require an authenticated session — unusable for a share recipient. This
- * proxies the anchored version's page PNGs through the same revoke/expiry/
+ * proxies the latest REDACTED version's page PNGs (never the original
+ * upload — F-03) through the same revoke/expiry/
  * view-limit checks as GET /api/v1/shares/{token} (without counting as an
  * extra view), bundling them into one PDF with pdf-lib (already a
  * dependency — see the certificate route) so the recipient gets a single
  * "redacted document" download.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { token: string } }
 ): Promise<Response> {
   const check = await checkShareDownloadable(params.token);
@@ -36,16 +38,11 @@ export async function GET(
     return Response.json(body, { status });
   }
 
-  const versions = await prisma.documentVersion.findMany({
-    where: { documentId: check.documentId, anchors: { some: {} } },
-    orderBy: { timestamp: "desc" },
-    take: 1,
-  });
-  const latestVersion = versions[0];
+  const latestVersion = await getLatestRedactedVersion(check.documentId);
   if (!latestVersion) {
     return Response.json(
-      { error: "NOT_ANCHORED", message: "This document has not completed anchoring yet." },
-      { status: 409 }
+      { error: "NO_REDACTED_VERSION", message: "No redacted version available for sharing" },
+      { status: 403 }
     );
   }
 
@@ -64,6 +61,23 @@ export async function GET(
     page.drawImage(embedded, { x: 0, y: 0, width: embedded.width, height: embedded.height });
   }
   const pdfBytes = await pdf.save();
+
+  // Attributed to the share's creator; see resolveShareView in lib/shares-repo.ts.
+  await writeAuditLog({
+    actorId: check.createdBy,
+    action: "SHARE_LINK_DOWNLOADED",
+    targetId: check.shareId,
+    targetType: "DocumentShare",
+    targetMeta: {
+      accessedBy: "share_recipient",
+      recipientLabel: check.recipientLabel,
+      documentId: check.documentId,
+      versionId: latestVersion.id,
+      versionNo: latestVersion.versionNo,
+      pageCount: tiles.length,
+    },
+    sourceIp: sourceIpFromRequest(req),
+  });
 
   return new Response(new Uint8Array(pdfBytes), {
     headers: {

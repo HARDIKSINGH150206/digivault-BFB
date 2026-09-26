@@ -4,7 +4,7 @@ import { extractBearerToken, verifySessionToken, type SessionActor } from "./aut
 export class RbacError extends Error {
   constructor(
     public status: 401 | 403,
-    public code: "UNAUTHENTICATED" | "FORBIDDEN",
+    public code: "UNAUTHENTICATED" | "FORBIDDEN" | "STEP_UP_REQUIRED",
     message: string
   ) {
     super(message);

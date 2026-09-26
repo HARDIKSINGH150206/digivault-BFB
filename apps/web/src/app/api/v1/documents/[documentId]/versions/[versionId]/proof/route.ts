@@ -5,6 +5,7 @@ import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { getPagePng } from "@/lib/storage";
 import { getEvidenceAnchorDeployment } from "@/lib/contract-address";
 import { sha256, toHex } from "@digivault/crypto-core";
+import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -19,8 +20,9 @@ export async function GET(
   req: Request,
   { params }: { params: { documentId: string; versionId: string } }
 ): Promise<Response> {
+  let actor;
   try {
-    requireRole(req, [
+    actor = requireRole(req, [
       Role.POLICE_OFFICER,
       Role.INVESTIGATING_OFFICER,
       Role.COURT_OFFICIAL,
@@ -68,6 +70,15 @@ export async function GET(
   }
 
   const { chainId, address } = getEvidenceAnchorDeployment();
+
+  await writeAuditLog({
+    actorId: actor.userId,
+    action: "DOWNLOAD_PROOF",
+    targetId: version.id,
+    targetType: "DocumentVersion",
+    targetMeta: { versionNo: version.versionNo, anchorLogId: anchorLog.id, pageCount: pages.length },
+    sourceIp: sourceIpFromRequest(req),
+  });
 
   return Response.json({
     digivault_proof_version: 1,

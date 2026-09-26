@@ -8,7 +8,7 @@ import { apiJson } from "./api-client";
 interface AuthContextValue {
   session: Session | null;
   loading: boolean;
-  loginAs: (userId: string) => Promise<void>;
+  login: (serviceNumber: string, pin: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -24,10 +24,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
-  async function loginAs(userId: string) {
-    const body = await apiJson<{ token: string; user_id: string; role: string }>("/api/auth/dev-login", {
+  async function login(serviceNumber: string, pin: string) {
+    const body = await apiJson<{ token: string; user_id: string; role: string }>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ serviceNumber, pin }),
     });
     const next: Session = { token: body.token, userId: body.user_id, role: body.role };
     setSession(next);
@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push("/login");
   }
 
-  return <AuthContext.Provider value={{ session, loading, loginAs, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ session, loading, login, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

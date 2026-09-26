@@ -1,23 +1,40 @@
-// One-off manual seed used to smoke-test the step-4 API routes in this
-// session (not wired into `prisma db seed` — not a deliverable, just a
-// throwaway fixture). Creates one user per role + one case.
+// Manual test seed (not wired into `prisma db seed`). Creates or updates
+// one user per role, each with a service number and bcrypt-hashed PIN
+// for /api/auth/login, plus one case. Idempotent: safe to re-run over an
+// existing database — users are matched on authIdentity, the case on
+// caseNumber.
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
-const roles = ["POLICE_OFFICER", "INVESTIGATING_OFFICER", "COURT_OFFICIAL", "FORENSIC_LAB", "ADMIN"];
+const BCRYPT_COST = 12;
+
+const seedUsers = [
+  { role: "POLICE_OFFICER", serviceNumber: "UP/2021/4821", pin: "112233" },
+  { role: "INVESTIGATING_OFFICER", serviceNumber: "DL/2019/3301", pin: "223344" },
+  { role: "COURT_OFFICIAL", serviceNumber: "MH/2020/5512", pin: "334455" },
+  { role: "FORENSIC_LAB", serviceNumber: "KA/2022/7891", pin: "445566" },
+  { role: "ADMIN", serviceNumber: "NCRB/2018/0001", pin: "556677" },
+];
 
 async function main() {
   const users = {};
-  for (const role of roles) {
-    const user = await prisma.user.create({
-      data: { role, department: "Women Safety Division", authIdentity: `${role.toLowerCase()}@test.digivault` },
+  for (const { role, serviceNumber, pin } of seedUsers) {
+    const authIdentity = `${role.toLowerCase()}@test.digivault`;
+    const pinHash = await bcrypt.hash(pin, BCRYPT_COST);
+    const user = await prisma.user.upsert({
+      where: { authIdentity },
+      update: { serviceNumber, pinHash },
+      create: { role, department: "Women Safety Division", authIdentity, serviceNumber, pinHash },
     });
     users[role] = user;
-    console.log(role, "->", user.id);
+    console.log(role.padEnd(22), serviceNumber.padEnd(15), "->", user.id);
   }
 
-  const kase = await prisma.case.create({
-    data: {
+  const kase = await prisma.case.upsert({
+    where: { caseNumber: "TEST/2026/0001" },
+    update: {},
+    create: {
       caseNumber: "TEST/2026/0001",
       caseType: "FIR",
       status: "OPEN",

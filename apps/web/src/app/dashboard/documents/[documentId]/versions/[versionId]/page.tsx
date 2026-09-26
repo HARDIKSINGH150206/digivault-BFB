@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { RequireAuth } from "@/lib/client/require-auth";
 import { apiFetch, apiJson } from "@/lib/client/api-client";
+import { useStepUp, StepUpCancelled, STEP_UP_HEADER } from "@/lib/client/use-step-up";
 import { SharePanel } from "@/components/SharePanel";
 import { IntegrityRadar } from "@/components/IntegrityRadar";
 import { manrope, inter } from "@/lib/client/fonts";
@@ -27,7 +28,14 @@ interface VersionInfo {
   storage_uri: string;
   is_current_version: boolean;
   created_at: string;
-  anchor: { status: string; object_lock_uri: string; polygon_tx_hash: string | null; anchored_at: string } | null;
+  is_redacted: boolean;
+  anchor: {
+    status: "PENDING" | "ANCHORED" | "FAILED";
+    error_message: string | null;
+    object_lock_uri: string;
+    polygon_tx_hash: string | null;
+    anchored_at: string;
+  } | null;
 }
 
 interface Suggestion {
@@ -41,6 +49,11 @@ interface Suggestion {
   source: string;
   masked: boolean;
 }
+
+// A PENDING anchor older than this almost certainly died with the server
+// process that was running it; offer a retry instead of spinning forever.
+const STALE_PENDING_MS = 2 * 60 * 1000;
+const ANCHOR_POLL_MS = 3000;
 
 const CARD_STYLE: React.CSSProperties = {
   position: "relative",
@@ -242,6 +255,17 @@ function VersionDetailContent() {
   const [anchoring, setAnchoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anchorMessage, setAnchorMessage] = useState<string | null>(null);
+  const { requestStepUp, stepUpDialog } = useStepUp();
+
+  /** Runs the step-up dialog; null means the officer cancelled it. */
+  async function stepUpHeaders(actionLabel: string): Promise<Record<string, string> | null> {
+    try {
+      return { [STEP_UP_HEADER]: await requestStepUp(actionLabel) };
+    } catch (err) {
+      if (err instanceof StepUpCancelled) return null;
+      throw err;
+    }
+  }
 
   const load = useCallback(async () => {
     const [v, s] = await Promise.all([
@@ -259,6 +283,22 @@ function VersionDetailContent() {
     load().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [load]);
 
+  // Anchoring runs in the background after upload/confirm: poll until it settles.
+  const anchorInFlight =
+    info !== null &&
+    (info.anchor === null || info.anchor.status === "PENDING") &&
+    !(info.anchor && Date.now() - new Date(info.anchor.anchored_at).getTime() > STALE_PENDING_MS) &&
+    Date.now() - new Date(info.created_at).getTime() < STALE_PENDING_MS;
+  useEffect(() => {
+    if (!anchorInFlight || anchoring) return;
+    const timer = setTimeout(() => {
+      apiJson<VersionInfo>(`/api/v1/documents/${documentId}/versions/${versionId}`)
+        .then(setInfo)
+        .catch(() => {});
+    }, ANCHOR_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [anchorInFlight, anchoring, info, documentId, versionId]);
+
   function toggle(tileIndex: number) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -272,9 +312,14 @@ function VersionDetailContent() {
     setConfirming(true);
     setError(null);
     try {
+      const headers = await stepUpHeaders("finalize redactions");
+      if (!headers) {
+        setConfirming(false);
+        return;
+      }
       const body = await apiJson<{ document_version_id: string }>(
         `/api/v1/documents/${documentId}/versions/${versionId}/redactions/confirm`,
-        { method: "POST", body: JSON.stringify({ confirmed_tile_indices: Array.from(selected) }) }
+        { method: "POST", headers, body: JSON.stringify({ confirmed_tile_indices: Array.from(selected) }) }
       );
       router.push(`/dashboard/documents/${documentId}/versions/${body.document_version_id}`);
     } catch (err) {
@@ -284,17 +329,22 @@ function VersionDetailContent() {
     }
   }
 
-  async function handleAnchor() {
-    setAnchoring(true);
+  async function handleRetryAnchor() {
     setAnchorMessage(null);
     setError(null);
+    const headers = await stepUpHeaders("anchor this version to the blockchain").catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    if (!headers) return;
+    setAnchoring(true);
     try {
-      const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/anchor`, { method: "POST" });
+      const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/anchor`, { method: "POST", headers });
       const body = await res.json();
       if (res.ok) {
-        setAnchorMessage(`Anchored. Polygon tx: ${body.polygon_tx_hash}`);
+        setAnchorMessage(null);
       } else {
-        setAnchorMessage(`MinIO half succeeded; on-chain anchor failed: ${body.reason ?? body.message}`);
+        setAnchorMessage(`Anchoring failed again: ${body.reason ?? body.message}`);
       }
       await load();
     } catch (err) {
@@ -337,7 +387,13 @@ function VersionDetailContent() {
   }
 
   async function handleDownloadCertificate() {
-    const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/certificate`);
+    setError(null);
+    const headers = await stepUpHeaders("generate the BSA certificate").catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    if (!headers) return;
+    const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/certificate`, { headers });
     if (!res.ok) {
       setError("Could not generate certificate.");
       return;
@@ -366,7 +422,9 @@ function VersionDetailContent() {
     );
   }
 
-  const anchored = Boolean(info.anchor?.polygon_tx_hash);
+  const anchorStatus = info.anchor?.status ?? null;
+  const anchored = anchorStatus === "ANCHORED" && Boolean(info.anchor?.polygon_tx_hash);
+  const anchorStale = !anchored && !anchorInFlight && anchorStatus !== "FAILED";
   const maskedCount = suggestions.filter((s) => s.masked).length;
   const totalFlags = suggestions.length;
   const statusColors = statusBadgeColors(info.status);
@@ -526,7 +584,7 @@ function VersionDetailContent() {
 
           <section style={CARD_STYLE}>
             <h2 style={{ margin: 0, fontSize: 17 }}>Anchoring</h2>
-            {anchoring && <p className="skeleton-pulse" style={{ color: "#60a5fa", fontSize: 13 }}>Writing to MinIO... then to Polygon Amoy...</p>}
+            <p style={{ margin: "6px 0 0", color: "#9ca3af", fontSize: 12 }}>Automatic: MinIO + Polygon Amoy, on every version.</p>
 
             {anchored ? (
               <div
@@ -543,7 +601,7 @@ function VersionDetailContent() {
                   borderRadius: 8,
                 }}
               >
-                <span style={{ color: "#22c55e", fontWeight: 800, fontSize: 13 }}>✓ Anchored to Polygon Amoy</span>
+                <span style={{ color: "#22c55e", fontWeight: 800, fontSize: 13 }}>✓ ANCHORED to Polygon Amoy</span>
                 <a
                   href={`https://amoy.polygonscan.com/tx/${info.anchor!.polygon_tx_hash}`}
                   target="_blank"
@@ -553,18 +611,32 @@ function VersionDetailContent() {
                   {truncateHash(info.anchor!.polygon_tx_hash!)}
                 </a>
               </div>
-            ) : (
-              <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 8 }}>
-                <span style={{ color: "#f59e0b", fontWeight: 800, fontSize: 13 }}>
-                  ⚠ Not yet anchored to blockchain{info.anchor?.object_lock_uri ? " (MinIO complete, Polygon pending)" : ""}
+            ) : anchoring || anchorInFlight ? (
+              <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 8 }}>
+                <span className="status-processing" style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />
+                <span className="skeleton-pulse" style={{ color: "#f59e0b", fontWeight: 800, fontSize: 13 }}>
+                  PENDING — {info.anchor?.object_lock_uri ? "MinIO written, waiting for Polygon…" : "writing to MinIO, then Polygon…"}
                 </span>
+              </div>
+            ) : (
+              <div style={{ marginTop: 14, padding: "12px 16px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.45)", borderRadius: 8 }}>
+                <span style={{ color: "#ef4444", fontWeight: 800, fontSize: 13 }}>
+                  {anchorStale ? "⚠ Anchoring did not complete" : "✕ FAILED — not anchored to blockchain"}
+                </span>
+                {info.anchor?.error_message && (
+                  <p style={{ margin: "6px 0 0", color: "#fca5a5", fontSize: 12, fontFamily: "monospace", overflowWrap: "anywhere" }}>
+                    {info.anchor.error_message.slice(0, 240)}
+                  </p>
+                )}
               </div>
             )}
 
-            <button onClick={handleAnchor} disabled={anchoring} style={{ marginTop: 14, background: anchoring ? "#1f2937" : "#3b82f6", color: "#f9fafb", border: `1px solid ${anchoring ? "#1f2937" : "#3b82f6"}`, borderRadius: 6, padding: "10px 14px", fontWeight: 800, cursor: anchoring ? "not-allowed" : "pointer" }}>
-              {anchoring ? "Anchoring..." : "Anchor this version (MinIO + Polygon)"}
-            </button>
-            {anchorMessage && <p style={{ fontSize: 13, color: anchorMessage.startsWith("Anchored") ? "#10b981" : "#ef4444" }}>{anchorMessage}</p>}
+            {!anchored && !anchoring && !anchorInFlight && (
+              <button onClick={handleRetryAnchor} style={{ marginTop: 14, background: "#3b82f6", color: "#f9fafb", border: "1px solid #3b82f6", borderRadius: 6, padding: "10px 14px", fontWeight: 800, cursor: "pointer" }}>
+                {info.anchor ? "Retry anchoring" : "Anchor now"}
+              </button>
+            )}
+            {anchorMessage && <p style={{ fontSize: 13, color: "#ef4444" }}>{anchorMessage}</p>}
           </section>
 
           <SharePanel documentId={documentId} versionId={versionId} />
@@ -595,6 +667,7 @@ function VersionDetailContent() {
       </section>
 
       {error && <p style={{ color: "#ef4444", marginTop: 18 }}>{error}</p>}
+      {stepUpDialog}
     </main>
   );
 }

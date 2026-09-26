@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { writeAuditLog } from "./audit";
 
 export type ShareViewResult =
   | { status: "NOT_FOUND" }
@@ -15,15 +16,7 @@ export type ShareViewResult =
         title: string;
         docType: string;
         caseNumber: string;
-        latestAnchoredVersion: {
-          id: string;
-          versionNo: number;
-          merkleRoot: string;
-          chainHash: string;
-          timestamp: Date;
-          storageUri: string;
-          polygonTxHash: string | null;
-        } | null;
+        redactedVersion: SharedVersion | null;
       };
     };
 
@@ -33,9 +26,15 @@ export type ShareViewResult =
  * (the API contract) and the unauthenticated recipient page (apps/web/src/
  * app/shares/[token]/page.tsx), which renders server-side directly off
  * Prisma rather than round-tripping through its own API — so "a view" is
- * counted exactly once no matter which caller triggers it.
+ * counted exactly once no matter which caller triggers it — and audited
+ * once, as SHARE_LINK_ACCESSED.
+ *
+ * Share recipients have no DigiVault account, but AuditLog.actorId is a
+ * required FK to User, so access is attributed to the officer who created
+ * the share, with targetMeta.accessedBy = "share_recipient" marking that
+ * the officer didn't perform it themselves.
  */
-export async function resolveShareView(token: string): Promise<ShareViewResult> {
+export async function resolveShareView(token: string, sourceIp: string): Promise<ShareViewResult> {
   const share = await prisma.documentShare.findUnique({
     where: { token },
     include: { document: { include: { case: true } } },
@@ -50,7 +49,23 @@ export async function resolveShareView(token: string): Promise<ShareViewResult> 
     data: { viewCount: { increment: 1 } },
   });
 
-  const latestVersion = await getLatestAnchoredVersion(share.documentId);
+  const latestVersion = await getLatestRedactedVersion(share.documentId);
+
+  await writeAuditLog({
+    actorId: share.createdBy,
+    action: "SHARE_LINK_ACCESSED",
+    targetId: share.id,
+    targetType: "DocumentShare",
+    targetMeta: {
+      accessedBy: "share_recipient",
+      recipientLabel: share.recipientLabel,
+      documentId: share.documentId,
+      versionId: latestVersion?.id ?? null,
+      viewNumber: updated.viewCount,
+      maxViews: share.maxViews,
+    },
+    sourceIp,
+  });
 
   return {
     status: "OK",
@@ -62,12 +77,12 @@ export async function resolveShareView(token: string): Promise<ShareViewResult> 
       title: share.document.title,
       docType: share.document.docType,
       caseNumber: share.document.case.caseNumber,
-      latestAnchoredVersion: latestVersion,
+      redactedVersion: latestVersion,
     },
   };
 }
 
-type LatestAnchoredVersion = {
+export type SharedVersion = {
   id: string;
   versionNo: number;
   merkleRoot: string;
@@ -77,14 +92,18 @@ type LatestAnchoredVersion = {
   polygonTxHash: string | null;
 };
 
-async function getLatestAnchoredVersion(documentId: string): Promise<LatestAnchoredVersion | null> {
-  const versions = await prisma.documentVersion.findMany({
-    where: { documentId, anchors: { some: {} } },
-    orderBy: { timestamp: "desc" },
-    take: 1,
-    include: { anchors: { orderBy: { anchoredAt: "desc" }, take: 1 } },
+/**
+ * The only version a share link may ever expose (F-03): the newest one
+ * produced by confirmed redactions. The original upload is never served,
+ * even if it is the only anchored version. Null means nothing is
+ * shareable yet.
+ */
+export async function getLatestRedactedVersion(documentId: string): Promise<SharedVersion | null> {
+  const version = await prisma.documentVersion.findFirst({
+    where: { documentId, isRedacted: true, status: "READY" },
+    orderBy: { versionNo: "desc" },
+    include: { anchors: { where: { status: "ANCHORED" }, orderBy: { anchoredAt: "desc" }, take: 1 } },
   });
-  const version = versions[0];
   if (!version) return null;
   return {
     id: version.id,
@@ -99,7 +118,7 @@ async function getLatestAnchoredVersion(documentId: string): Promise<LatestAncho
 
 export type ShareDownloadCheck =
   | { status: "NOT_FOUND" | "REVOKED" | "EXPIRED" | "EXHAUSTED" }
-  | { status: "OK"; documentId: string };
+  | { status: "OK"; documentId: string; shareId: string; createdBy: string; recipientLabel: string };
 
 /** Read-only variant of the same checks, for the download proxy — does not count as a view. */
 export async function checkShareDownloadable(token: string): Promise<ShareDownloadCheck> {
@@ -108,5 +127,11 @@ export async function checkShareDownloadable(token: string): Promise<ShareDownlo
   if (share.revokedAt) return { status: "REVOKED" };
   if (share.expiresAt < new Date()) return { status: "EXPIRED" };
   if (share.viewCount >= share.maxViews) return { status: "EXHAUSTED" };
-  return { status: "OK", documentId: share.documentId };
+  return {
+    status: "OK",
+    documentId: share.documentId,
+    shareId: share.id,
+    createdBy: share.createdBy,
+    recipientLabel: share.recipientLabel,
+  };
 }

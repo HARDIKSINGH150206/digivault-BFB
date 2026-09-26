@@ -40,13 +40,17 @@ export function SharePanel({ documentId }: { documentId: string; versionId: stri
   const [copied, setCopied] = useState(false);
 
   const [shares, setShares] = useState<ShareRow[] | null>(null);
+  const [sharedVersion, setSharedVersion] = useState<{ id: string; versionNo: number } | null | undefined>(undefined);
   const [listError, setListError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const loadShares = useCallback(async () => {
     try {
-      const body = await apiJson<{ shares: ShareRow[] }>(`/api/v1/documents/${documentId}/shares`);
+      const body = await apiJson<{ shares: ShareRow[]; sharedVersion: { id: string; versionNo: number } | null }>(
+        `/api/v1/documents/${documentId}/shares`
+      );
       setShares(body.shares);
+      setSharedVersion(body.sharedVersion);
       setListError(null);
     } catch (err) {
       setListError(err instanceof Error ? err.message : String(err));
@@ -114,6 +118,17 @@ export function SharePanel({ documentId }: { documentId: string; versionId: stri
         Generate a time-limited, view-limited link for a specific recipient (e.g. a court or opposing counsel).
       </p>
 
+      {sharedVersion === null && (
+        <p style={{ margin: "14px 0 0", padding: "10px 12px", fontSize: 13, color: "#f59e0b", background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.40)", borderRadius: 6 }}>
+          Confirm redactions first — share links only ever serve a redacted version, never the original upload.
+        </p>
+      )}
+      {sharedVersion && (
+        <p style={{ margin: "14px 0 0", fontSize: 12, color: "#9ca3af" }}>
+          Recipients will receive the redacted <strong style={{ color: "#e2e8f0" }}>v{sharedVersion.versionNo}</strong>.
+        </p>
+      )}
+
       <form onSubmit={handleCreate} style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, alignItems: "end" }}>
         <div>
           <label style={labelStyle} htmlFor="share-recipient">Recipient label</label>
@@ -154,15 +169,15 @@ export function SharePanel({ documentId }: { documentId: string; versionId: stri
         </div>
         <button
           type="submit"
-          disabled={creating}
+          disabled={creating || !sharedVersion}
           style={{
-            background: creating ? "#1f2937" : "#3b82f6",
+            background: creating || !sharedVersion ? "#1f2937" : "#3b82f6",
             color: "#f9fafb",
-            border: `1px solid ${creating ? "#1f2937" : "#3b82f6"}`,
+            border: `1px solid ${creating || !sharedVersion ? "#1f2937" : "#3b82f6"}`,
             borderRadius: 6,
             padding: "10px 14px",
             fontWeight: 800,
-            cursor: creating ? "not-allowed" : "pointer",
+            cursor: creating || !sharedVersion ? "not-allowed" : "pointer",
             height: 38,
           }}
         >

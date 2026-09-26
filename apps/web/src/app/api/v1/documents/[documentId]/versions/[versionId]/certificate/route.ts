@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
+import { requireStepUp } from "@/lib/step-up";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -30,6 +31,7 @@ export async function GET(
   let actor;
   try {
     actor = requireRole(req, ALL_ROLES);
+    requireStepUp(req, actor);
   } catch (err) {
     if (err instanceof RbacError) return rbacErrorResponse(err);
     throw err;
@@ -127,8 +129,10 @@ export async function GET(
 
   await writeAuditLog({
     actorId: actor.userId,
-    action: "GENERATE_CERTIFICATE",
+    action: "DOWNLOAD_CERTIFICATE",
     targetId: version.id,
+    targetType: "DocumentVersion",
+    targetMeta: { versionNo: version.versionNo, anchored: Boolean(anchor?.polygonTxHash) },
     sourceIp: sourceIpFromRequest(req),
   });
 
