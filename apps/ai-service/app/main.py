@@ -6,7 +6,11 @@ from fastapi import FastAPI, HTTPException
 from .real_suggestions import generate_suggestions
 from .schemas import SuggestionRequest, SuggestionResponse
 
-app = FastAPI(title="DigiVault AI Service", description="STUB — fake suggestions, real interface contract.")
+app = FastAPI(title="DigiVault AI Service", description=(
+        "Bilingual (English + Hindi/Devanagari) NER redaction service. "
+        "Suggests grid tiles to redact; suggestion-only, never touches the Merkle hash."
+    ),
+)
 
 
 @app.get("/health")

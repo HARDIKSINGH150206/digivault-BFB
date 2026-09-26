@@ -160,8 +160,8 @@ export async function POST(req: Request): Promise<Response> {
   });
 
   // docs/02 step 10-11: send pages to ai-service for redaction targeting.
-  // Real HTTP call (apps/ai-service, currently a fake-data stub — see
-  // docs/05-ai-service audit notes), not another stub on this side. Per
+  // Real HTTP call to apps/ai-service (bilingual English + Hindi NER
+  // redaction suggestions). Per
   // CLAUDE.md rule 2, a failure/timeout here must NEVER fail the upload —
   // the document is already fully hashed and stored above.
   try {

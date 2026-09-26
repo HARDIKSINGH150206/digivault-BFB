@@ -1,7 +1,6 @@
 /**
- * Real HTTP client for apps/ai-service (currently a stub — see
- * apps/ai-service/app/fake_suggestions.py — but this contract is meant to
- * survive the swap to real Bhashini/IndicNER unchanged). CLAUDE.md rule 2:
+ * HTTP client for apps/ai-service, the bilingual (English + Hindi) NER
+ * redaction service (see apps/ai-service/app/real_suggestions.py). CLAUDE.md rule 2:
  * whatever this returns is suggestion-only. The caller (upload route) is
  * responsible for making sure a failure/timeout here never blocks the
  * upload/hash pipeline that already committed before this is called.

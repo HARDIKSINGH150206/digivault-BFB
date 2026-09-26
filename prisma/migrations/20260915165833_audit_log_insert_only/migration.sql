@@ -11,15 +11,13 @@
 -- application connection, which is the one that matters for the threat
 -- model.
 --
--- Password below is a dev-only placeholder — rotate it before this ever
--- runs anywhere beyond a local/demo Postgres instance.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'digivault_app') THEN
-    CREATE ROLE digivault_app LOGIN PASSWORD '3d23ba0ddbacf6e0a44888a2bc6829cc';
+-- Password is set externally via: ALTER ROLE digivault_app PASSWORD '<from .env.local>'
+-- Never commit the real password here.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'digivault_app') THEN
+    CREATE ROLE digivault_app LOGIN PASSWORD 'PLACEHOLDER_SET_VIA_ENV';
   END IF;
-END
-$$;
+END $$;
 
 GRANT USAGE ON SCHEMA public TO digivault_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO digivault_app;
