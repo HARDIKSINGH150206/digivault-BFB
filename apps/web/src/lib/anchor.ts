@@ -8,6 +8,20 @@ export type AnchorResult =
   | { status: "ANCHORED"; anchorLog: AnchorLog }
   | { status: "FAILED"; anchorLog: AnchorLog | null; error: string };
 
+/**
+ * On-chain sends are serialized: every anchor is signed by the same
+ * deployer wallet, and overlapping sends would fetch the same pending
+ * nonce, so all but one would be rejected. On globalThis so all route
+ * bundles share one queue.
+ */
+const globalForAnchor = globalThis as unknown as { __digivaultAnchorQueue?: Promise<unknown> };
+
+function onChainSerialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = (globalForAnchor.__digivaultAnchorQueue ?? Promise.resolve()).then(fn, fn);
+  globalForAnchor.__digivaultAnchorQueue = run.catch(() => undefined);
+  return run;
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -62,7 +76,7 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
     });
 
     stage = "polygon";
-    const { txHash } = await anchorRootOnChain(version.id, version.merkleRoot);
+    const { txHash } = await onChainSerialized(() => anchorRootOnChain(version.id, version.merkleRoot));
     anchorLog = await prisma.anchorLog.update({
       where: { id: anchorLog.id },
       data: { polygonTxHash: txHash, status: "ANCHORED" },
