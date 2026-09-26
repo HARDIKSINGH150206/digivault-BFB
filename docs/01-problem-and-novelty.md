@@ -8,7 +8,7 @@ Investigating Officers, Court Officials, Forensic Labs, and Admins at NCRB's Wom
 
 ## The two legal anchors that drive the architecture
 
-### Section 228A, IPC — victim identity protection
+### BNS s.72 (Bharatiya Nyaya Sanhita, 2023) — victim identity protection
 Criminalizes disclosing a sexual assault victim's identity. Any exported, shared, or printed copy of a document must not expose victim-identifying fields (name, address, phone, age where identifying). **This is why redaction exists and why it defaults to fail-closed** — a false negative here isn't a UI bug, it's a legal violation.
 
 ### Bharatiya Sakshya Adhiniyam (BSA), 2023 — Sections 61 & 63
