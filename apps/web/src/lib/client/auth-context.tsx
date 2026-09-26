@@ -25,11 +25,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function login(serviceNumber: string, pin: string) {
-    const body = await apiJson<{ token: string; user_id: string; role: string }>("/api/auth/login", {
+    const body = await apiJson<{ token: string; user_id: string; role: string; service_number: string; department: string | null }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ serviceNumber, pin }),
     });
-    const next: Session = { token: body.token, userId: body.user_id, role: body.role };
+    const next: Session = {
+      token: body.token,
+      userId: body.user_id,
+      role: body.role,
+      serviceNumber: body.service_number,
+      department: body.department,
+    };
     setSession(next);
     setSessionState(next);
   }

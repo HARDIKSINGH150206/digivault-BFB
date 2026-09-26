@@ -12,6 +12,12 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     if (!loading && !session) router.push("/login");
   }, [loading, session, router]);
 
-  if (loading || !session) return <p style={{ padding: 24 }}>Loading…</p>;
+  if (loading || !session) {
+    return (
+      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#F6F8FA", color: "#5E5E5E", fontSize: 14 }} role="status">
+        Loading…
+      </div>
+    );
+  }
   return <>{children}</>;
 }

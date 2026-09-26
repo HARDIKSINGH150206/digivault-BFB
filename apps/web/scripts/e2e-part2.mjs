@@ -37,17 +37,18 @@ async function main() {
 
   // F-03: nothing is shareable until a redacted version exists.
   await page.waitForSelector("text=Confirm redactions first");
-  if (!(await page.locator('button:has-text("Generate share link")').isDisabled())) {
-    throw new Error("Share link creation should be disabled before redactions are confirmed");
+  const shareButton = page.locator('button:has-text("Generate share link")');
+  if ((await shareButton.count()) > 0 && !(await shareButton.isDisabled())) {
+    throw new Error("Share link creation should not be offered before redactions are confirmed");
   }
   console.log("STEP: sharing blocked on unredacted v1");
 
   const v2Url = await confirmFirstSuggestion(page, stepUpWithBiometric());
   console.log("STEP: redaction confirmed (biometric step-up, enrolled) ->", v2Url);
   const versionText = await page.locator("h1").textContent();
-  const versionNo = await page.locator("text=/^v\\d+$/").first().textContent();
+  const versionNo = await page.locator("text=/^Version \\d+$/").first().textContent();
   console.log("STEP: version heading ->", versionNo, versionText);
-  if (versionNo !== "v2") throw new Error(`Expected v2 after confirm, got: ${versionNo}`);
+  if (versionNo !== "Version 2") throw new Error(`Expected Version 2 after confirm, got: ${versionNo}`);
 
   // Anchoring is automatic now; FAILED is reported, not fatal, here.
   const anchor = await waitForAnchor(page);
