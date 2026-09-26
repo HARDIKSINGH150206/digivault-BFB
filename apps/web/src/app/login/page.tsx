@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/client/auth-context";
-import { apiJson } from "@/lib/client/api-client";
+import { ApiError } from "@/lib/client/api-client";
 import { loginGlobeArcs, loginGlobeConfig } from "./globe-config";
 import { TextHoverEffect } from "@/lib/client/text-hover-effect";
 import { manrope, inter } from "@/lib/client/fonts";
@@ -16,24 +16,17 @@ import { CornerBracket } from "@/lib/client/corner-bracket";
 // SSR/hydration mismatch on this page (we've hit two real ones already).
 const World = dynamic(() => import("@/lib/client/globe").then((m) => m.World), { ssr: false });
 
-interface DevUser {
-  id: string;
-  role: string;
-  department: string;
-  authIdentity: string;
-}
-
-// Kept in code per design spec, deliberately not rendered on this screen —
-// the placeholder-auth caveat would undercut the "security infrastructure"
-// tone this page is going for. Still true, still worth knowing; it just
-// doesn't belong on this particular screen.
-const DEV_AUTH_NOTE = "Development sign-in. Production deployments use department SSO, not a user picker.";
-
-const SELECT_CHEVRON_DATA_URI =
-  "data:image/svg+xml," +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1l5 5 5-5" stroke="#6b7280" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-  );
+const INPUT_STYLE: React.CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "11px 12px",
+  fontSize: 14,
+  color: "#e2e8f0",
+  background: "#0a0f1a",
+  border: "1px solid #1e3a5f",
+  borderRadius: 4,
+  outline: "none",
+};
 
 function LinkIcon() {
   return (
@@ -55,10 +48,10 @@ function LinkIcon() {
 }
 
 export default function LoginPage() {
-  const { loginAs, session } = useAuth();
+  const { login, session } = useAuth();
   const router = useRouter();
-  const [users, setUsers] = useState<DevUser[]>([]);
-  const [selected, setSelected] = useState<string>("");
+  const [serviceNumber, setServiceNumber] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -66,25 +59,19 @@ export default function LoginPage() {
     if (session) router.push("/dashboard");
   }, [session, router]);
 
-  useEffect(() => {
-    apiJson<{ users: DevUser[] }>("/api/dev/users")
-      .then((body) => {
-        setUsers(body.users);
-        if (body.users[0]) setSelected(body.users[0].id);
-      })
-      .catch(() => setError("Could not load users."));
-  }, []);
+  const canSubmit = serviceNumber.trim().length > 0 && pin.length > 0 && !submitting;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selected) return;
+    if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
-      await loginAs(selected);
+      await login(serviceNumber.trim(), pin);
       router.push("/dashboard");
-    } catch {
-      setError("Login failed.");
+    } catch (err) {
+      setError(err instanceof ApiError && (err.status === 401 || err.status === 429) ? err.message : "Login failed.");
+      setPin("");
     } finally {
       setSubmitting(false);
     }
@@ -121,12 +108,9 @@ export default function LoginPage() {
       }}
     >
       {/*
-        The select's chevron background-image (an SVG data URI) is set via
-        inline style below, not here — embedding a data URI with mixed
-        quote characters inside a raw <style> JSX text child caused a real
-        SSR/CSR text-escaping mismatch (server and client HTML-escaped the
-        embedded quotes differently), which surfaced as a hydration error.
-        Pseudo-class rules that inline style can't express still live here.
+        Keep data URIs and mixed quotes out of this raw <style> child — they
+        caused an SSR/CSR text-escaping hydration mismatch before. Only
+        pseudo-class rules that inline style can't express live here.
       */}
       <style>{`
         html, body {
@@ -142,12 +126,11 @@ export default function LoginPage() {
             height: 100dvh;
           }
         }
-        .login-select option {
-          background: #0a0f1a;
-          color: #e2e8f0;
+        .login-input:focus {
+          border-color: #4a90c4 !important;
         }
-        .login-select option:checked {
-          background: #1e3a5f;
+        .login-input::placeholder {
+          color: #4b5563;
         }
         .login-submit:not(:disabled):hover {
           background: #263348 !important;
@@ -270,38 +253,41 @@ export default function LoginPage() {
           </p>
 
           <form onSubmit={handleSubmit} style={{ marginTop: 24, display: "grid", gap: 8 }}>
-            <label style={{ fontSize: 12, color: "#9ca3af" }}>Sign in as</label>
-            <select
-              className="login-select"
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "11px 32px 11px 12px",
-                fontSize: 14,
-                color: "#e2e8f0",
-                background: "#0a0f1a",
-                border: "1px solid #1e3a5f",
-                borderRadius: 4,
-                appearance: "none",
-                WebkitAppearance: "none",
-                backgroundImage: `url(${SELECT_CHEVRON_DATA_URI})`,
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 12px center",
-              }}
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.role} — {u.department}
-                </option>
-              ))}
-            </select>
+            <label htmlFor="service-number" style={{ fontSize: 12, color: "#9ca3af" }}>
+              Service Number
+            </label>
+            <input
+              id="service-number"
+              className="login-input"
+              value={serviceNumber}
+              onChange={(e) => setServiceNumber(e.target.value)}
+              placeholder="e.g. DL/2019/3301"
+              autoComplete="username"
+              autoCapitalize="characters"
+              spellCheck={false}
+              style={{ ...INPUT_STYLE, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: 0.5 }}
+            />
+
+            <label htmlFor="pin" style={{ fontSize: 12, color: "#9ca3af", marginTop: 6 }}>
+              PIN
+            </label>
+            <input
+              id="pin"
+              className="login-input"
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="••••••"
+              autoComplete="current-password"
+              style={{ ...INPUT_STYLE, letterSpacing: 4 }}
+            />
 
             {error && <p style={{ color: "#ef4444", fontSize: 13, margin: 0 }}>{error}</p>}
 
             <button
               type="submit"
-              disabled={submitting || !selected}
+              disabled={!canSubmit}
               className="login-submit"
               style={{
                 marginTop: 6,
@@ -312,8 +298,8 @@ export default function LoginPage() {
                 background: "#1e293b",
                 border: "1px solid #334155",
                 borderRadius: 4,
-                cursor: submitting || !selected ? "not-allowed" : "pointer",
-                opacity: submitting || !selected ? 0.6 : 1,
+                cursor: canSubmit ? "pointer" : "not-allowed",
+                opacity: canSubmit ? 1 : 0.6,
                 transition: "background 0.15s, border-color 0.15s",
               }}
             >

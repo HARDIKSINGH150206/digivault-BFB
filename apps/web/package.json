@@ -11,29 +11,32 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@digivault/crypto-core": "workspace:*",
+    "@prisma/client": "^5.22.0",
+    "@react-three/drei": "9.122.0",
+    "@react-three/fiber": "8.18.0",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
+    "bcryptjs": "^3.0.3",
+    "buffer": "^6.0.3",
+    "ethers": "^6.13.2",
+    "minio": "^8.0.2",
+    "motion": "13.3.0",
     "next": "^14.2.13",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.7.76",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@prisma/client": "^5.22.0",
-    "@digivault/crypto-core": "workspace:*",
+    "react-dropzone": "20.1.2",
     "sharp": "^0.33.5",
-    "minio": "^8.0.2",
-    "ethers": "^6.13.2",
-    "pdfjs-dist": "^4.7.76",
-    "pdf-lib": "^1.17.1",
-    "buffer": "^6.0.3",
     "three": "0.186.0",
-    "three-globe": "2.45.2",
-    "@react-three/fiber": "8.18.0",
-    "@react-three/drei": "9.122.0",
-    "motion": "13.3.0",
-    "react-dropzone": "20.1.2"
+    "three-globe": "2.45.2"
   },
   "devDependencies": {
-    "typescript": "^5.6.2",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.5",
     "@types/three": "0.186.0",
-    "playwright": "^1.47.2"
+    "playwright": "^1.47.2",
+    "typescript": "^5.6.2"
   }
 }
