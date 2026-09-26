@@ -2,9 +2,9 @@
   "network": "amoy",
   "chainId": 80002,
   "contractName": "EvidenceAnchor",
-  "address": "0x6B8c4e1Dce347b9fa40381818217C6262EB56Ba4",
-  "deployTxHash": "0xc88a417d71bb1aecfd9708106666a10fd530a3963bbb32b67d9054c0b70f071a",
-  "deployedBy": "0xDce09d537ec225ACE671f74B2e3Cb207337a23F8",
-  "blockNumber": 47667443,
-  "deployedAt": "2026-09-15T16:27:00.806Z"
+  "address": "0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b",
+  "deployTxHash": "0xcd484fe26c2e7b35c7c72fbb54734a27585ac47cb656b202fa7c05fdf9dd1dfe",
+  "deployedBy": "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873",
+  "blockNumber": 48603680,
+  "deployedAt": "2026-09-26T12:34:59.383Z"
 }
