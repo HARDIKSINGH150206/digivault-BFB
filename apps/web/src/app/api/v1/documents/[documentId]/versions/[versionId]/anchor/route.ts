@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
+import { requireStepUp } from "@/lib/step-up";
 import { putObjectLocked } from "@/lib/storage";
 import { anchorRootOnChain } from "@/lib/polygon";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
@@ -25,6 +26,7 @@ export async function POST(
   let actor;
   try {
     actor = requireRole(req, [Role.INVESTIGATING_OFFICER, Role.ADMIN]);
+    requireStepUp(req, actor);
   } catch (err) {
     if (err instanceof RbacError) return rbacErrorResponse(err);
     throw err;

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { RequireAuth } from "@/lib/client/require-auth";
 import { apiFetch, apiJson } from "@/lib/client/api-client";
+import { useStepUp, StepUpCancelled, STEP_UP_HEADER } from "@/lib/client/use-step-up";
 import { SharePanel } from "@/components/SharePanel";
 import { IntegrityRadar } from "@/components/IntegrityRadar";
 import { manrope, inter } from "@/lib/client/fonts";
@@ -242,6 +243,17 @@ function VersionDetailContent() {
   const [anchoring, setAnchoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anchorMessage, setAnchorMessage] = useState<string | null>(null);
+  const { requestStepUp, stepUpDialog } = useStepUp();
+
+  /** Runs the step-up dialog; null means the officer cancelled it. */
+  async function stepUpHeaders(actionLabel: string): Promise<Record<string, string> | null> {
+    try {
+      return { [STEP_UP_HEADER]: await requestStepUp(actionLabel) };
+    } catch (err) {
+      if (err instanceof StepUpCancelled) return null;
+      throw err;
+    }
+  }
 
   const load = useCallback(async () => {
     const [v, s] = await Promise.all([
@@ -272,9 +284,14 @@ function VersionDetailContent() {
     setConfirming(true);
     setError(null);
     try {
+      const headers = await stepUpHeaders("finalize redactions");
+      if (!headers) {
+        setConfirming(false);
+        return;
+      }
       const body = await apiJson<{ document_version_id: string }>(
         `/api/v1/documents/${documentId}/versions/${versionId}/redactions/confirm`,
-        { method: "POST", body: JSON.stringify({ confirmed_tile_indices: Array.from(selected) }) }
+        { method: "POST", headers, body: JSON.stringify({ confirmed_tile_indices: Array.from(selected) }) }
       );
       router.push(`/dashboard/documents/${documentId}/versions/${body.document_version_id}`);
     } catch (err) {
@@ -285,11 +302,16 @@ function VersionDetailContent() {
   }
 
   async function handleAnchor() {
-    setAnchoring(true);
     setAnchorMessage(null);
     setError(null);
+    const headers = await stepUpHeaders("anchor this version to the blockchain").catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    if (!headers) return;
+    setAnchoring(true);
     try {
-      const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/anchor`, { method: "POST" });
+      const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/anchor`, { method: "POST", headers });
       const body = await res.json();
       if (res.ok) {
         setAnchorMessage(`Anchored. Polygon tx: ${body.polygon_tx_hash}`);
@@ -337,7 +359,13 @@ function VersionDetailContent() {
   }
 
   async function handleDownloadCertificate() {
-    const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/certificate`);
+    setError(null);
+    const headers = await stepUpHeaders("generate the BSA certificate").catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+      return null;
+    });
+    if (!headers) return;
+    const res = await apiFetch(`/api/v1/documents/${documentId}/versions/${versionId}/certificate`, { headers });
     if (!res.ok) {
       setError("Could not generate certificate.");
       return;
@@ -595,6 +623,7 @@ function VersionDetailContent() {
       </section>
 
       {error && <p style={{ color: "#ef4444", marginTop: 18 }}>{error}</p>}
+      {stepUpDialog}
     </main>
   );
 }

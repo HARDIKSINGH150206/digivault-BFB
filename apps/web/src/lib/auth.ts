@@ -55,3 +55,38 @@ export function extractBearerToken(req: Request): string | null {
   if (!header?.startsWith("Bearer ")) return null;
   return header.slice("Bearer ".length).trim();
 }
+
+/**
+ * Short-lived signed tokens for things other than the session (step-up
+ * proof, WebAuthn challenges). Each scope gets its own HMAC key derived
+ * from AUTH_SESSION_SECRET, so a token from one scope never verifies in
+ * another, or as a session token.
+ */
+function scopedSign(scope: string, payload: string): string {
+  if (!SECRET) {
+    throw new Error("AUTH_SESSION_SECRET is not set");
+  }
+  const key = createHmac("sha256", SECRET).update(`digivault:${scope}`).digest();
+  return createHmac("sha256", key).update(payload).digest("base64url");
+}
+
+export function issueScopedToken(scope: string, claims: Record<string, string>, ttlSeconds: number): string {
+  const payload = Buffer.from(JSON.stringify({ ...claims, exp: Date.now() + ttlSeconds * 1000 })).toString("base64url");
+  return `${payload}.${scopedSign(scope, payload)}`;
+}
+
+export function verifyScopedToken(scope: string, token: string): Record<string, string> | null {
+  try {
+    const [payload, sig] = token.split(".");
+    if (!payload || !sig) return null;
+    const sigBuf = Buffer.from(sig, "base64url");
+    const expectedBuf = Buffer.from(scopedSign(scope, payload), "base64url");
+    if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) return null;
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (typeof claims.exp !== "number" || Date.now() > claims.exp) return null;
+    const { exp: _exp, ...rest } = claims;
+    return rest as Record<string, string>;
+  } catch {
+    return null;
+  }
+}
