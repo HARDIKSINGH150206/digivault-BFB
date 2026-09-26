@@ -38,7 +38,26 @@ function describeError(err: unknown): string {
  * or the PIN fallback when the browser has no WebAuthn. Render
  * `stepUpDialog` somewhere in the page.
  */
-export function useStepUp() {
+type StepUpTheme = "dark" | "light";
+
+/** Colours only — the flow and endpoints are identical for both themes. "dark" (default) is the original look. */
+const PALETTES = {
+  dark: {
+    overlay: "rgba(4,5,8,0.72)", cardBg: "linear-gradient(165deg, rgba(22,33,52,0.96) 0%, rgba(10,15,24,0.96) 100%)",
+    cardBorder: "1px solid rgba(74,144,196,0.35)", cardShadow: "0 0 60px rgba(30,80,160,0.25), 0 24px 60px rgba(0,0,0,0.5)",
+    text: "#e2e8f0", eyebrow: "#4a90c4", muted: "#9ca3af", body: "#cbd5e1", inputBg: "#0a0f1a", inputBorder: "1px solid #1e3a5f",
+    error: "#ef4444", primary: "#3b82f6", primaryDisabled: "#1f2937", primaryText: "#f9fafb", primaryDisabledText: "#f9fafb", link: "#60a5fa",
+  },
+  light: {
+    overlay: "rgba(29,34,38,0.45)", cardBg: "#FFFFFF",
+    cardBorder: "1px solid #E3E8ED", cardShadow: "0 24px 60px -20px rgba(29,34,38,0.35)",
+    text: "#1D2226", eyebrow: "#5E5E5E", muted: "#5E5E5E", body: "#1D2226", inputBg: "#FFFFFF", inputBorder: "1px solid #D0D7DE",
+    error: "#CC1016", primary: "#0A66C2", primaryDisabled: "#E3E8ED", primaryText: "#FFFFFF", primaryDisabledText: "#6B737A", link: "#0A66C2",
+  },
+} as const;
+
+export function useStepUp(options: { theme?: StepUpTheme } = {}) {
+  const c = PALETTES[options.theme ?? "dark"];
   const [label, setLabel] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("biometric");
   const [pin, setPin] = useState("");
@@ -139,7 +158,7 @@ export function useStepUp() {
           display: "grid",
           placeItems: "center",
           padding: 16,
-          background: "rgba(4,5,8,0.72)",
+          background: c.overlay,
           backdropFilter: "blur(4px)",
         }}
       >
@@ -147,26 +166,26 @@ export function useStepUp() {
           style={{
             width: "100%",
             maxWidth: 380,
-            background: "linear-gradient(165deg, rgba(22,33,52,0.96) 0%, rgba(10,15,24,0.96) 100%)",
-            border: "1px solid rgba(74,144,196,0.35)",
+            background: c.cardBg,
+            border: c.cardBorder,
             borderRadius: 8,
             padding: 26,
-            boxShadow: "0 0 60px rgba(30,80,160,0.25), 0 24px 60px rgba(0,0,0,0.5)",
-            color: "#e2e8f0",
+            boxShadow: c.cardShadow,
+            color: c.text,
           }}
         >
-          <p style={{ margin: "0 0 6px", color: "#4a90c4", fontSize: 10, letterSpacing: 2, fontWeight: 700, textTransform: "uppercase" }}>
+          <p style={{ margin: "0 0 6px", color: c.eyebrow, fontSize: 10, letterSpacing: 2, fontWeight: 700, textTransform: "uppercase" }}>
             Step-up authentication
           </p>
           <h2 id="step-up-title" style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
             Verify your identity
           </h2>
-          <p style={{ margin: "8px 0 18px", color: "#9ca3af", fontSize: 13, lineHeight: 1.5 }}>
-            Required to <strong style={{ color: "#e2e8f0" }}>{label}</strong>.
+          <p style={{ margin: "8px 0 18px", color: c.muted, fontSize: 13, lineHeight: 1.5 }}>
+            Required to <strong style={{ color: c.text }}>{label}</strong>.
           </p>
 
           {mode === "biometric" && (
-            <button onClick={verifyBiometric} disabled={busy} style={primaryButton(busy)} autoFocus>
+            <button onClick={verifyBiometric} disabled={busy} style={primaryButton(busy, c)} autoFocus>
               {busy ? "Waiting for device…" : "Use fingerprint / Face ID"}
             </button>
           )}
@@ -180,16 +199,16 @@ export function useStepUp() {
               style={{ display: "grid", gap: 8 }}
             >
               {mode === "enroll" && (
-                <p style={{ margin: "0 0 4px", color: "#cbd5e1", fontSize: 13, lineHeight: 1.5 }}>
+                <p style={{ margin: "0 0 4px", color: c.body, fontSize: 13, lineHeight: 1.5 }}>
                   No fingerprint / Face ID is set up for your account yet. Enter your PIN to register this device.
                 </p>
               )}
               {mode === "pin" && !webauthnSupported && (
-                <p style={{ margin: "0 0 4px", color: "#cbd5e1", fontSize: 13, lineHeight: 1.5 }}>
+                <p style={{ margin: "0 0 4px", color: c.body, fontSize: 13, lineHeight: 1.5 }}>
                   This browser doesn&apos;t support biometric verification. Re-enter your PIN instead.
                 </p>
               )}
-              <label htmlFor="step-up-pin" style={{ fontSize: 12, color: "#9ca3af" }}>
+              <label htmlFor="step-up-pin" style={{ fontSize: 12, color: c.muted }}>
                 PIN
               </label>
               <input
@@ -206,38 +225,38 @@ export function useStepUp() {
                   padding: "11px 12px",
                   fontSize: 14,
                   letterSpacing: 4,
-                  color: "#e2e8f0",
-                  background: "#0a0f1a",
-                  border: "1px solid #1e3a5f",
+                  color: c.text,
+                  background: c.inputBg,
+                  border: c.inputBorder,
                   borderRadius: 4,
                 }}
               />
-              <button type="submit" disabled={busy || !pin} style={primaryButton(busy || !pin)}>
+              <button type="submit" disabled={busy || !pin} style={primaryButton(busy || !pin, c)}>
                 {busy ? "Verifying…" : mode === "enroll" ? "Register fingerprint / Face ID" : "Verify PIN"}
               </button>
             </form>
           )}
 
-          {error && <p style={{ margin: "12px 0 0", color: "#ef4444", fontSize: 13 }}>{error}</p>}
+          {error && <p style={{ margin: "12px 0 0", color: c.error, fontSize: 13 }}>{error}</p>}
           {error && mode === "biometric" && (
-            <button onClick={() => { setMode("enroll"); setError(null); }} disabled={busy} style={{ ...linkButton, marginTop: 8 }}>
+            <button onClick={() => { setMode("enroll"); setError(null); }} disabled={busy} style={{ ...linkButton, color: c.link, marginTop: 8 }}>
               New device? Register this device&apos;s fingerprint / Face ID
             </button>
           )}
 
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 16, fontSize: 12 }}>
             {webauthnSupported && mode !== "pin" ? (
-              <button onClick={() => { setMode("pin"); setError(null); }} disabled={busy} style={linkButton}>
+              <button onClick={() => { setMode("pin"); setError(null); }} disabled={busy} style={{ ...linkButton, color: c.link }}>
                 Use PIN instead
               </button>
             ) : webauthnSupported && mode === "pin" ? (
-              <button onClick={() => { setMode("biometric"); setError(null); }} disabled={busy} style={linkButton}>
+              <button onClick={() => { setMode("biometric"); setError(null); }} disabled={busy} style={{ ...linkButton, color: c.link }}>
                 Use fingerprint / Face ID
               </button>
             ) : (
               <span />
             )}
-            <button onClick={cancel} disabled={busy} style={{ ...linkButton, color: "#9ca3af" }}>
+            <button onClick={cancel} disabled={busy} style={{ ...linkButton, color: c.muted }}>
               Cancel
             </button>
           </div>
@@ -248,15 +267,15 @@ export function useStepUp() {
   return { requestStepUp, stepUpDialog };
 }
 
-function primaryButton(disabled: boolean): React.CSSProperties {
+function primaryButton(disabled: boolean, c: (typeof PALETTES)[StepUpTheme]): React.CSSProperties {
   return {
     width: "100%",
     padding: 12,
     fontSize: 14,
     fontWeight: 700,
-    color: "#f9fafb",
-    background: disabled ? "#1f2937" : "#3b82f6",
-    border: `1px solid ${disabled ? "#1f2937" : "#3b82f6"}`,
+    color: disabled ? c.primaryDisabledText : c.primaryText,
+    background: disabled ? c.primaryDisabled : c.primary,
+    border: `1px solid ${disabled ? c.primaryDisabled : c.primary}`,
     borderRadius: 6,
     cursor: disabled ? "not-allowed" : "pointer",
   };

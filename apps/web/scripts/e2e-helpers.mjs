@@ -46,30 +46,30 @@ export async function login(page, { serviceNumber, pin } = INVESTIGATING_OFFICER
 /** Creates a case from the dashboard and opens it. Returns the case number. */
 export async function createAndOpenCase(page, prefix) {
   const caseNumber = `${prefix}/${Date.now()}`;
-  await page.click('button:has-text("+ New Case")');
-  await page.fill('input[placeholder^="Case number"]', caseNumber);
-  await page.fill('input[placeholder="Case type"]', "FIR");
-  await page.fill('input[placeholder="Department"]', "Women Safety Division");
+  await page.click('button:has-text("New Case")');
+  await page.getByLabel("Case number").fill(caseNumber);
+  await page.getByLabel("Case type").fill("FIR");
+  await page.getByLabel("Department").fill("Women Safety Division");
   await page.click('button:has-text("Create case")');
-  const row = page.locator("tr", { hasText: caseNumber });
-  await row.waitFor({ timeout: 15000 });
-  await row.locator("a", { hasText: "View" }).click();
+  const link = page.getByRole("link", { name: caseNumber, exact: true }).first();
+  await link.waitFor({ timeout: 15000 });
+  await link.click();
   await page.waitForURL(/\/dashboard\/cases\/[^/]+$/, { timeout: 15000 });
   return caseNumber;
 }
 
 /** Uploads a PDF from the open case page; resolves on the new version page. */
 export async function uploadDocument(page, pdfPath, title) {
-  await page.click('button:has-text("+ Upload Document")');
+  await page.click('a:has-text("Upload document")');
   await page.waitForURL(/\/upload$/, { timeout: 15000 });
-  await page.fill('input[placeholder="e.g. FIR Report"]', title);
+  await page.getByLabel("Document title").fill(title);
   await page.setInputFiles('input[type="file"]', pdfPath);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard\/documents\/.+\/versions\/.+$/, { timeout: 60000 });
   return page.url();
 }
 
-/** Selects the first AI suggestion and finalizes it. Resolves on the redacted version's page. */
+/** Selects the first group of AI suggestions and finalizes it. Resolves on the redacted version's page. */
 export async function confirmFirstSuggestion(page, stepUp) {
   const v1Url = page.url();
   try {
@@ -78,8 +78,8 @@ export async function confirmFirstSuggestion(page, stepUp) {
     throw new Error("No AI redaction suggestions appeared — is apps/ai-service running (AI_SERVICE_URL)?");
   }
   await page.locator("li input[type=checkbox]").first().check();
-  await page.click('button:has-text("Review 1 selected redaction")');
-  await page.click('button:has-text("Yes, finalize redactions")');
+  await page.locator("button", { hasText: /^Review \d+ selected areas?$/ }).click();
+  await page.click('button:has-text("Create redacted version")');
   await stepUp(page);
   await page.waitForFunction((oldUrl) => window.location.href !== oldUrl, v1Url, { timeout: 30000 });
   return page.url();
@@ -87,10 +87,10 @@ export async function confirmFirstSuggestion(page, stepUp) {
 
 /** Anchoring is automatic; wait for the indicator to settle. Returns "ANCHORED" or "FAILED". */
 export async function waitForAnchor(page, timeout = 120000) {
-  const settled = page.locator("text=/ANCHORED to Polygon Amoy|FAILED — not anchored|Anchoring did not complete/");
+  const settled = page.locator(".wsv-status-title", { hasText: /Anchored on Polygon Amoy|Anchoring failed|Anchoring did not complete/ });
   await settled.first().waitFor({ timeout });
   const text = await settled.first().textContent();
-  return text.includes("ANCHORED to Polygon") ? "ANCHORED" : "FAILED";
+  return text.includes("Anchored on Polygon") ? "ANCHORED" : "FAILED";
 }
 
 // --- Step-up ("Verify your identity") ---------------------------------------

@@ -74,7 +74,7 @@ async function main() {
   const anchor = await waitForAnchor(page);
   console.log("STEP: automatic anchor ->", anchor);
   if (anchor !== "ANCHORED") {
-    const reason = await page.locator("section:has(h2:text('Anchoring')) p").last().textContent().catch(() => "");
+    const reason = await page.locator("section:has(h2:text('Integrity')) .wsv-status-text").last().textContent().catch(() => "");
     throw new Error(`Expected an on-chain anchor for this test, got ${anchor}: ${reason}`);
   }
 

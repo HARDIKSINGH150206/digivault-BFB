@@ -5,6 +5,8 @@ import "@/lib/client/buffer-polyfill";
 import { useState } from "react";
 import { JsonRpcProvider, Contract, keccak256, toUtf8Bytes } from "ethers";
 import { hashTiles, buildMerkleTree, type TileHash } from "@digivault/crypto-core";
+import { manrope, inter } from "@/lib/client/fonts";
+import { BrandMark } from "../dashboard/_workspace/shell";
 
 /**
  * Court Verification Portal. CLAUDE.md rule 5 / step 6 Part 3 requirements:
@@ -64,6 +66,55 @@ function shortHash(value: string): string {
   return `${value.slice(0, 16)}...${value.slice(-8)}`;
 }
 
+const VERIFY_CSS = `
+.vf { min-height: 100vh; background: #F6F8FA; color: #1D2226; }
+.vf *, .vf *::before, .vf *::after { box-sizing: border-box; }
+.vf-header { height: 72px; display: flex; align-items: center; gap: 12px; padding: 0 28px; background: #FFFFFF; border-bottom: 1px solid #E3E8ED; }
+.vf-brand-name { font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: -0.4px; line-height: 1.1; }
+.vf-brand-sub { font-size: 12.5px; color: #5E5E5E; margin-top: 1px; }
+.vf-main { max-width: 680px; margin: 0 auto; padding: 40px 20px 56px; }
+.vf-eyebrow { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #5E5E5E; }
+.vf-title { margin: 0; font-family: var(--font-display); font-size: 32px; font-weight: 800; letter-spacing: -0.7px; line-height: 1.15; }
+.vf-lede { margin: 10px 0 0; font-size: 16px; line-height: 1.55; color: #5E5E5E; }
+.vf-card { margin-top: 26px; padding: 24px; background: #FFFFFF; border: 1px solid #E3E8ED; border-radius: 14px; box-shadow: 0 1px 2px rgba(29,34,38,0.04); display: grid; gap: 14px; }
+.vf-drop { display: flex; align-items: center; gap: 14px; padding: 18px; border: 1.5px dashed #C3CDD7; border-radius: 12px; background: #FBFCFD; cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease; }
+.vf-drop:hover { border-color: #0A66C2; background: #F4F8FC; }
+.vf-drop:focus-within { outline: 2px solid #0A66C2; outline-offset: 2px; }
+.vf-drop-icon { width: 44px; height: 44px; border-radius: 10px; background: #EAF2FB; color: #0A66C2; display: grid; place-items: center; flex: none; }
+.vf-drop-label { display: block; font-size: 15px; font-weight: 600; color: #1D2226; }
+.vf-drop-detail { display: block; margin-top: 2px; font-size: 13.5px; color: #5E5E5E; }
+.vf-drop-files { display: block; margin-top: 6px; font-size: 12.5px; color: #0A66C2; overflow-wrap: anywhere; }
+.vf-drop-empty { display: block; margin-top: 6px; font-size: 12.5px; color: #8A939B; }
+.vf-advanced { justify-self: start; background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px; font-weight: 600; color: #0A66C2; cursor: pointer; }
+.vf-advanced:focus-visible { outline: 2px solid #0A66C2; outline-offset: 2px; border-radius: 2px; }
+.vf-input { display: block; width: 100%; margin-top: 6px; height: 42px; padding: 0 12px; border: 1px solid #D0D7DE; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #1D2226; background: #FFFFFF; }
+.vf-input:focus-visible { outline: none; border-color: #0A66C2; box-shadow: 0 0 0 3px rgba(10,102,194,0.2); }
+.vf-primary { height: 48px; border: 0; border-radius: 10px; background: #0A66C2; color: #FFFFFF; font: inherit; font-size: 15.5px; font-weight: 600; cursor: pointer; transition: background-color 120ms ease; }
+.vf-primary:hover:not(:disabled) { background: #004182; }
+.vf-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px #FFFFFF, 0 0 0 5px #0A66C2; }
+.vf-primary:disabled { background: #E3E8ED; color: #6B737A; cursor: not-allowed; }
+.vf-result { margin-top: 20px; padding: 20px; border-radius: 14px; border: 1px solid; animation: vf-in 180ms ease-out; }
+.vf-result-row { display: flex; gap: 14px; align-items: center; }
+.vf-result h2 { margin: 0; font-size: 19px; font-weight: 700; }
+.vf-result p { margin: 4px 0 0; font-size: 14px; }
+.vf-ok { background: #EAF6EF; border-color: #B7DEC7; }
+.vf-ok h2 { color: #05542F; }
+.vf-bad { background: #FDF1F1; border-color: #F4C7C8; }
+.vf-bad h2 { color: #A30D12; }
+.vf-checking { background: #FFFFFF; border-color: #E3E8ED; }
+.vf-untrusted { border-width: 2px; border-color: #CC1016; }
+.vf-official { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid #B7DEC7; background: #FFFFFF; color: #057642; font-size: 12.5px; font-weight: 600; }
+.vf-facts { margin-top: 14px; display: grid; gap: 6px; font-size: 13.5px; color: #1D2226; }
+.vf-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #0A66C2; }
+.vf-detail { margin: 12px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: #5E5E5E; overflow-wrap: anywhere; }
+.vf-spinner { width: 20px; height: 20px; border-radius: 50%; border: 3px solid #E3E8ED; border-top-color: #0A66C2; animation: vf-spin 900ms linear infinite; flex: none; }
+@keyframes vf-spin { to { transform: rotate(360deg); } }
+@keyframes vf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .vf-result, .vf-spinner { animation: none; } }
+@media (max-width: 560px) { .vf-header { padding: 0 16px; } .vf-title { font-size: 27px; } }
+`;
+
 function FileDropZone({
   label,
   detail,
@@ -80,33 +131,19 @@ function FileDropZone({
   onChange: (files: FileList | null) => void;
 }) {
   return (
-    <label
-      style={{
-        display: "grid",
-        gap: 10,
-        minHeight: 154,
-        padding: 18,
-        border: "1px dashed #1f2937",
-        borderRadius: 8,
-        background: "#111827",
-        cursor: "pointer",
-      }}
-    >
-      <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#60a5fa" strokeWidth="1.8" />
-          <path d="M14 2v6h6" stroke="#60a5fa" strokeWidth="1.8" />
-          <path d="M8 15h8M8 18h5" stroke="#9ca3af" strokeWidth="1.6" strokeLinecap="round" />
+    <label className="vf-drop">
+      <span className="vf-drop-icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M14 3.5H7.5A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V7.5l-4-4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+          <path d="M14 3.5v4h4M9 12.5h6M9 16h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span>
-          <strong style={{ display: "block", color: "#f9fafb", fontSize: 14 }}>{label}</strong>
-          <span style={{ color: "#9ca3af", fontSize: 12 }}>{detail}</span>
-        </span>
       </span>
-      <input type="file" accept={accept} multiple={multiple} onChange={(e) => onChange(e.target.files)} style={{ display: "none" }} />
-      <span style={{ alignSelf: "end", color: filenames.length ? "#60a5fa" : "#9ca3af", fontSize: 12, fontFamily: filenames.length ? "monospace" : undefined }}>
-        {filenames.length ? filenames.join(", ") : "Select file"}
+      <span style={{ minWidth: 0 }}>
+        <span className="vf-drop-label">{label}</span>
+        <span className="vf-drop-detail">{detail}</span>
+        {filenames.length ? <span className="vf-drop-files">{filenames.join(", ")}</span> : <span className="vf-drop-empty">No file selected</span>}
       </span>
+      <input type="file" accept={accept} multiple={multiple} onChange={(e) => onChange(e.target.files)} style={{ position: "absolute", width: 1, height: 1, opacity: 0 }} />
     </label>
   );
 }
@@ -228,22 +265,22 @@ export default function VerifyPage() {
   const canVerify = Boolean(proofFile && pngFiles.length > 0 && result.outcome !== "checking");
 
   return (
-    <main style={{ minHeight: "100vh", background: "#0a0f1a", color: "#f9fafb", padding: "40px 24px" }}>
-      <style>{`
-        @keyframes resultFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .result-card { animation: resultFade 180ms ease-out; }
-      `}</style>
-      <section style={{ maxWidth: 640, margin: "0 auto" }}>
-        <header style={{ marginBottom: 24 }}>
-          <p style={{ margin: "0 0 8px", color: "#60a5fa", fontSize: 12, fontWeight: 800 }}>PUBLIC COURT VERIFICATION</p>
-          <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.2 }}>Court Document Verification</h1>
-          <p style={{ margin: "10px 0 0", color: "#9ca3af", fontSize: 14, lineHeight: 1.6 }}>
-            Independent verification - no account required, no connection to DigiVault servers.
-          </p>
-        </header>
+    <div className={`vf ${inter.variable} ${manrope.variable} ${inter.className}`}>
+      <style>{VERIFY_CSS}</style>
+      <header className="vf-header">
+        <BrandMark />
+        <div>
+          <div className="vf-brand-name">DigiVault</div>
+          <div className="vf-brand-sub">Public verification</div>
+        </div>
+      </header>
 
-        <div style={{ display: "grid", gap: 14 }}>
+      <main className="vf-main">
+        <p className="vf-eyebrow">Public court verification</p>
+        <h1 className="vf-title">Court Document Verification</h1>
+        <p className="vf-lede">Independent verification - no account required, no connection to DigiVault servers.</p>
+
+        <div className="vf-card">
           <FileDropZone
             label="Redacted PNG page(s)"
             detail="Upload every page image from the verification bundle."
@@ -260,94 +297,59 @@ export default function VerifyPage() {
             onChange={(files) => setProofFile(files?.[0] ?? null)}
           />
 
-          <button
-            onClick={() => setShowAdvanced((v) => !v)}
-            style={{ justifySelf: "start", fontSize: 12, background: "none", border: "none", color: "#9ca3af", cursor: "pointer", padding: 0 }}
-          >
+          <button type="button" className="vf-advanced" aria-expanded={showAdvanced} onClick={() => setShowAdvanced((v) => !v)}>
             {showAdvanced ? "Hide" : "Show"} advanced options
           </button>
           {showAdvanced && (
-            <label style={{ fontSize: 13, color: "#9ca3af" }}>
+            <label style={{ fontSize: 13.5, fontWeight: 600, color: "#1D2226" }}>
               Polygon RPC endpoint
-              <input
-                value={rpcUrl}
-                onChange={(e) => setRpcUrl(e.target.value)}
-                style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 6, fontFamily: "monospace", fontSize: 12, color: "#f9fafb", background: "#111827", border: "1px solid #1f2937", borderRadius: 6, padding: 10 }}
-              />
+              <input className="vf-input" value={rpcUrl} onChange={(e) => setRpcUrl(e.target.value)} />
             </label>
           )}
 
-          <button
-            onClick={handleVerify}
-            disabled={!canVerify}
-            style={{
-              marginTop: 4,
-              padding: "12px 14px",
-              fontSize: 14,
-              fontWeight: 800,
-              color: canVerify ? "#f9fafb" : "#9ca3af",
-              background: canVerify ? "#3b82f6" : "#1f2937",
-              border: `1px solid ${canVerify ? "#3b82f6" : "#1f2937"}`,
-              borderRadius: 6,
-              cursor: canVerify ? "pointer" : "not-allowed",
-            }}
-          >
+          <button type="button" className="vf-primary" onClick={handleVerify} disabled={!canVerify}>
             Verify
           </button>
         </div>
 
         {result.outcome === "checking" && (
-          <div className="result-card" style={{ marginTop: 24, padding: 18, background: "#111827", border: "1px solid #1f2937", borderRadius: 8, display: "flex", gap: 12, alignItems: "center" }}>
-            <span style={{ width: 22, height: 22, borderRadius: "50%", border: "3px solid #1f2937", borderTopColor: "#3b82f6", animation: "spin 900ms linear infinite" }} />
-            <strong>Checking blockchain record...</strong>
+          <div className="result-card vf-result vf-checking" role="status">
+            <div className="vf-result-row">
+              <span className="vf-spinner" aria-hidden="true" />
+              <strong>Checking blockchain record...</strong>
+            </div>
           </div>
         )}
 
         {result.outcome === "verified" && (
-          <div className="result-card" style={{ marginTop: 24, padding: 20, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.65)", boxShadow: "0 0 0 1px rgba(16,185,129,0.12), 0 18px 60px rgba(16,185,129,0.08)", borderRadius: 8 }}>
-            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" stroke="#10b981" strokeWidth="1.8" />
-                <path d="m7 12 3 3 7-7" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          <div className="result-card vf-result vf-ok" role="status">
+            <div className="vf-result-row">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" fill="#057642" />
+                <path d="m7 12 3 3 7-7" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               <div>
-                <h2 style={{ margin: 0, color: "#d1fae5", fontSize: 20 }}>Verified - matches public blockchain record</h2>
-                <p style={{ margin: "4px 0 0", color: "#9ca3af", fontSize: 13 }}>The supplied document pages match the public Polygon Amoy anchor.</p>
+                <h2>Verified - matches public blockchain record</h2>
+                <p style={{ color: "#1D2226" }}>The supplied document pages match the public Polygon Amoy anchor.</p>
               </div>
             </div>
-            <div style={{ marginTop: 16, display: "grid", gap: 8, fontSize: 13 }}>
-              <div>merkle_root: <code title={result.proof.merkle_root} style={{ color: "#60a5fa", fontFamily: "monospace" }}>{shortHash(result.proof.merkle_root)}</code></div>
+            <div className="vf-facts">
+              <div>merkle_root: <code title={result.proof.merkle_root} className="vf-code">{shortHash(result.proof.merkle_root)}</code></div>
               <div>
                 polygon_tx_hash:{" "}
-                <a href={`https://amoy.polygonscan.com/tx/${result.proof.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: "#60a5fa", fontFamily: "monospace" }}>
+                <a href={`https://amoy.polygonscan.com/tx/${result.proof.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" className="vf-code">
                   {shortHash(result.proof.anchor.polygon_tx_hash)}
                 </a>
               </div>
-              <div>anchored_at: <code style={{ color: "#60a5fa", fontFamily: "monospace" }}>{result.proof.anchor.anchored_at}</code></div>
+              <div>anchored_at: <code className="vf-code">{result.proof.anchor.anchored_at}</code></div>
             </div>
-            <div
-              style={{
-                marginTop: 16,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 12px",
-                border: "1px solid rgba(16,185,129,0.5)",
-                borderRadius: 999,
-                background: "rgba(16,185,129,0.12)",
-                color: "#6ee7b7",
-                fontSize: 12,
-                fontWeight: 700,
-              }}
-            >
-              <span aria-hidden>🛡</span>
+            <div className="vf-official">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3.5 19 6.3v5.2c0 4.4-2.8 7.5-7 9-4.2-1.5-7-4.6-7-9V6.3l7-2.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="m9 12 2 2 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
               Verified against official DigiVault contract
-              <a
-                href={`https://amoy.polygonscan.com/address/${TRUSTED_CONTRACT}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "#60a5fa", fontFamily: "monospace", fontWeight: 400 }}
-              >
+              <a href={`https://amoy.polygonscan.com/address/${TRUSTED_CONTRACT}`} target="_blank" rel="noreferrer" className="vf-code">
                 {shortHash(TRUSTED_CONTRACT)}
               </a>
             </div>
@@ -355,40 +357,38 @@ export default function VerifyPage() {
         )}
 
         {result.outcome === "untrusted" && (
-          <div className="result-card" style={{ marginTop: 24, padding: 20, background: "rgba(239,68,68,0.14)", border: "2px solid #ef4444", borderRadius: 8 }}>
-            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 2 2 20h20L12 2z" stroke="#ef4444" strokeWidth="1.8" strokeLinejoin="round" />
-                <path d="M12 9v5" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" />
-                <circle cx="12" cy="17" r="1.2" fill="#ef4444" />
+          <div className="result-card vf-result vf-bad vf-untrusted" role="alert">
+            <div className="vf-result-row">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 2.5 1.8 20.5h20.4L12 2.5Z" fill="#CC1016" />
+                <path d="M12 9.5v5" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" />
+                <circle cx="12" cy="17.3" r="1.2" fill="#FFFFFF" />
               </svg>
               <div>
-                <h2 style={{ margin: 0, color: "#fecaca", fontSize: 20 }}>{result.reason}</h2>
-                <p style={{ margin: "4px 0 0", color: "#fca5a5", fontSize: 13 }}>
-                  This proof was not checked against the official DigiVault record. Treat the document as unverified.
-                </p>
+                <h2>{result.reason}</h2>
+                <p style={{ color: "#1D2226" }}>This proof was not checked against the official DigiVault record. Treat the document as unverified.</p>
               </div>
             </div>
-            {result.detail && <p style={{ margin: "14px 0 0", fontFamily: "monospace", fontSize: 11, color: "#9ca3af", overflowWrap: "anywhere" }}>{result.detail}</p>}
+            {result.detail && <p className="vf-detail">{result.detail}</p>}
           </div>
         )}
 
         {result.outcome === "mismatch" && (
-          <div className="result-card" style={{ marginTop: 24, padding: 20, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.72)", borderRadius: 8 }}>
-            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" stroke="#ef4444" strokeWidth="1.8" />
-                <path d="m8 8 8 8M16 8l-8 8" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" />
+          <div className="result-card vf-result vf-bad" role="alert">
+            <div className="vf-result-row">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" fill="#CC1016" />
+                <path d="m8 8 8 8M16 8l-8 8" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" />
               </svg>
               <div>
-                <h2 style={{ margin: 0, color: "#fecaca", fontSize: 20 }}>Mismatch - do not trust this document</h2>
-                <p style={{ margin: "4px 0 0", color: "#fca5a5", fontSize: 13 }}>{result.reason}</p>
+                <h2>Mismatch - do not trust this document</h2>
+                <p style={{ color: "#1D2226" }}>{result.reason}</p>
               </div>
             </div>
-            {result.detail && <p style={{ margin: "14px 0 0", fontFamily: "monospace", fontSize: 11, color: "#9ca3af", overflowWrap: "anywhere" }}>{result.detail}</p>}
+            {result.detail && <p className="vf-detail">{result.detail}</p>}
           </div>
         )}
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }
