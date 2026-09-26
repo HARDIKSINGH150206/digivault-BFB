@@ -1,4 +1,4 @@
-import { Role, DocumentSourceType } from "@prisma/client";
+import { Prisma, Role, DocumentSourceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { recomputeDocumentHashes } from "@/lib/server-hash";
@@ -26,6 +26,26 @@ interface UploadMetadata {
   pages: { page_index: number; width_px: number; height_px: number }[];
 }
 
+function isPositiveInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v > 0;
+}
+
+// JSON.parse only proves the metadata is JSON; this checks it has the fields
+// the rest of the route dereferences. A new document needs case_id; a new
+// version of an existing one needs document_id instead.
+function isValidMetadataShape(m: Record<string, unknown>): boolean {
+  const hasDocumentId = typeof m.document_id === "string" && m.document_id !== "";
+  return (
+    isPositiveInt(m.grid_size) &&
+    isPositiveInt(m.page_count) &&
+    typeof m.client_hash === "string" &&
+    typeof m.merkle_root === "string" &&
+    Array.isArray(m.tiles) &&
+    Array.isArray(m.pages) &&
+    (hasDocumentId || typeof m.case_id === "string")
+  );
+}
+
 // POST /api/v1/evidence/upload — docs/04-api-spec.md endpoint 1.
 export async function POST(req: Request): Promise<Response> {
   let actor;
@@ -36,17 +56,29 @@ export async function POST(req: Request): Promise<Response> {
     throw err;
   }
 
-  const form = await req.formData();
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return Response.json({ error: "BAD_REQUEST", message: "Expected multipart/form-data." }, { status: 400 });
+  }
   const metadataRaw = form.get("metadata");
   if (typeof metadataRaw !== "string") {
     return Response.json({ error: "BAD_REQUEST", message: "Missing metadata part." }, { status: 400 });
   }
-  let metadata: UploadMetadata;
+  let parsed: unknown;
   try {
-    metadata = JSON.parse(metadataRaw) as UploadMetadata;
+    parsed = JSON.parse(metadataRaw);
   } catch {
     return Response.json({ error: "Invalid metadata" }, { status: 400 });
   }
+  if (parsed === null) {
+    return Response.json({ error: "BAD_REQUEST", message: "Missing metadata part." }, { status: 400 });
+  }
+  if (typeof parsed !== "object" || Array.isArray(parsed) || !isValidMetadataShape(parsed as Record<string, unknown>)) {
+    return Response.json({ error: "BAD_REQUEST", message: "Invalid metadata shape." }, { status: 400 });
+  }
+  const metadata = parsed as UploadMetadata;
 
   if (metadata.tiles.length !== metadata.page_count * metadata.grid_size ** 2) {
     return Response.json(
@@ -64,7 +96,11 @@ export async function POST(req: Request): Promise<Response> {
         { status: 400 }
       );
     }
-    pageBuffers.push(Buffer.from(await file.arrayBuffer()));
+    const buffer = Buffer.from(await file.arrayBuffer());
+    if (buffer.length === 0) {
+      return Response.json({ error: "BAD_REQUEST", message: "Page file is empty." }, { status: 400 });
+    }
+    pageBuffers.push(buffer);
   }
 
   // --- Server-side hash re-verification (CLAUDE.md rule 4) ---
@@ -113,16 +149,25 @@ export async function POST(req: Request): Promise<Response> {
         { status: 400 }
       );
     }
-    const created = await prisma.document.create({
-      data: {
-        caseId: metadata.case_id,
-        title: metadata.title,
-        docType: metadata.doc_type,
-        sourceType: metadata.source_type,
-        uploaderId: actor.userId,
-      },
-    });
-    documentId = created.id;
+    try {
+      const created = await prisma.document.create({
+        data: {
+          caseId: metadata.case_id,
+          title: metadata.title,
+          docType: metadata.doc_type,
+          sourceType: metadata.source_type,
+          uploaderId: actor.userId,
+        },
+      });
+      documentId = created.id;
+    } catch (err) {
+      // uploaderId comes from a verified session, so the only foreign key
+      // that can fail here is caseId.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+        return Response.json({ error: "NOT_FOUND", message: "Case not found." }, { status: 404 });
+      }
+      throw err;
+    }
   }
 
   const timestamp = new Date();
