@@ -30,11 +30,23 @@ enum DocumentStatus {
   FAILED
 }
 
+// Anchor state lives on AnchorLog, not DocumentVersion: a version whose
+// on-chain anchor failed is still a valid, fully hashed upload.
+enum AnchorStatus {
+  PENDING
+  ANCHORED
+  FAILED
+}
+
 model User {
   id           String   @id @default(cuid())
   role         Role
   department   String
   authIdentity String   @unique
+  // Nullable so the migration can run over pre-existing users; a user with
+  // no serviceNumber/pinHash simply cannot log in until re-seeded.
+  serviceNumber String?  @unique
+  pinHash       String?
   mfaStatus    Boolean  @default(false)
   createdAt    DateTime @default(now())
 
@@ -43,6 +55,17 @@ model User {
   auditEntries AuditLog[]
   sharesCreated      DocumentShare[]   @relation("ShareCreatedBy")
   redactionsReviewed RedactionFlag[]   @relation("RedactionReviewer")
+  webauthnCredentials WebAuthnCredential[]
+}
+
+model WebAuthnCredential {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  credentialId String   @unique // base64url
+  publicKey    Bytes
+  counter      Int
+  createdAt    DateTime @default(now())
 }
 
 model Case {
@@ -88,6 +111,7 @@ model DocumentVersion {
   uploadedBy   User           @relation(fields: [uploadedById], references: [id])
   uploadedById String
   status       DocumentStatus @default(PROCESSING)
+  isRedacted   Boolean        @default(false)
   timestamp    DateTime       @default(now())
 
   anchors AnchorLog[]
@@ -131,6 +155,8 @@ model AuditLog {
   actorId   String
   action    String
   targetId  String
+  targetType String?
+  targetMeta Json?
   timestamp DateTime @default(now())
   sourceIp  String
 }
@@ -143,6 +169,8 @@ model AnchorLog {
   anchoredAt         DateTime        @default(now())
   objectLockUri      String
   polygonTxHash       String?
+  status             AnchorStatus    @default(PENDING)
+  errorMessage       String?
 }
 
 model DocumentShare {
