@@ -130,6 +130,23 @@ export async function POST(
     actorId: actor.userId,
     action: "CONFIRM_REDACTIONS",
     targetId: newVersion.id,
+    targetType: "DocumentVersion",
+    sourceIp: sourceIpFromRequest(req),
+  });
+  await writeAuditLog({
+    actorId: actor.userId,
+    action: "CONFIRM_REDACTIONS_DETAIL",
+    targetId: newVersion.id,
+    targetType: "DocumentVersion",
+    targetMeta: {
+      priorVersionId: priorVersion.id,
+      priorVersionNo: priorVersion.versionNo,
+      versionNo,
+      redactedTileIndices: [...body.confirmed_tile_indices].sort((a, b) => a - b),
+      tilesByPage: Object.fromEntries(
+        [...tilesByPage].map(([page, cells]) => [page, cells.map((c) => `R${c.row}C${c.col}`)])
+      ),
+    },
     sourceIp: sourceIpFromRequest(req),
   });
 

@@ -14,7 +14,12 @@ import { isIP } from "node:net";
  *   the same spoofable value as the first entry when it did.
  */
 export function clientIp(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for");
+  return clientIpFromHeaders(req.headers);
+}
+
+/** Same as clientIp, for server components that only have next/headers. */
+export function clientIpFromHeaders(headers: { get(name: string): string | null }): string {
+  const xff = headers.get("x-forwarded-for");
   if (!xff) return "unknown";
   const hops = xff
     .split(",")

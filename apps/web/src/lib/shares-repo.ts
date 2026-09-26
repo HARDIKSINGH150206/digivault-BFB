@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { writeAuditLog } from "./audit";
 
 export type ShareViewResult =
   | { status: "NOT_FOUND" }
@@ -33,9 +34,15 @@ export type ShareViewResult =
  * (the API contract) and the unauthenticated recipient page (apps/web/src/
  * app/shares/[token]/page.tsx), which renders server-side directly off
  * Prisma rather than round-tripping through its own API — so "a view" is
- * counted exactly once no matter which caller triggers it.
+ * counted exactly once no matter which caller triggers it — and audited
+ * once, as SHARE_LINK_ACCESSED.
+ *
+ * Share recipients have no DigiVault account, but AuditLog.actorId is a
+ * required FK to User, so access is attributed to the officer who created
+ * the share, with targetMeta.accessedBy = "share_recipient" marking that
+ * the officer didn't perform it themselves.
  */
-export async function resolveShareView(token: string): Promise<ShareViewResult> {
+export async function resolveShareView(token: string, sourceIp: string): Promise<ShareViewResult> {
   const share = await prisma.documentShare.findUnique({
     where: { token },
     include: { document: { include: { case: true } } },
@@ -51,6 +58,22 @@ export async function resolveShareView(token: string): Promise<ShareViewResult> 
   });
 
   const latestVersion = await getLatestAnchoredVersion(share.documentId);
+
+  await writeAuditLog({
+    actorId: share.createdBy,
+    action: "SHARE_LINK_ACCESSED",
+    targetId: share.id,
+    targetType: "DocumentShare",
+    targetMeta: {
+      accessedBy: "share_recipient",
+      recipientLabel: share.recipientLabel,
+      documentId: share.documentId,
+      versionId: latestVersion?.id ?? null,
+      viewNumber: updated.viewCount,
+      maxViews: share.maxViews,
+    },
+    sourceIp,
+  });
 
   return {
     status: "OK",
@@ -99,7 +122,7 @@ async function getLatestAnchoredVersion(documentId: string): Promise<LatestAncho
 
 export type ShareDownloadCheck =
   | { status: "NOT_FOUND" | "REVOKED" | "EXPIRED" | "EXHAUSTED" }
-  | { status: "OK"; documentId: string };
+  | { status: "OK"; documentId: string; shareId: string; createdBy: string; recipientLabel: string };
 
 /** Read-only variant of the same checks, for the download proxy — does not count as a view. */
 export async function checkShareDownloadable(token: string): Promise<ShareDownloadCheck> {
@@ -108,5 +131,11 @@ export async function checkShareDownloadable(token: string): Promise<ShareDownlo
   if (share.revokedAt) return { status: "REVOKED" };
   if (share.expiresAt < new Date()) return { status: "EXPIRED" };
   if (share.viewCount >= share.maxViews) return { status: "EXHAUSTED" };
-  return { status: "OK", documentId: share.documentId };
+  return {
+    status: "OK",
+    documentId: share.documentId,
+    shareId: share.id,
+    createdBy: share.createdBy,
+    recipientLabel: share.recipientLabel,
+  };
 }

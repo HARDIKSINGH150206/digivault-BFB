@@ -85,6 +85,7 @@ export async function POST(req: Request): Promise<Response> {
     actorId: actor.userId,
     action: "CREATE_CASE",
     targetId: created.id,
+    targetType: "Case",
     sourceIp: sourceIpFromRequest(req),
   });
 

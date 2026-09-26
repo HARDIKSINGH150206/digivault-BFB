@@ -156,6 +156,7 @@ export async function POST(req: Request): Promise<Response> {
     actorId: actor.userId,
     action: "UPLOAD_DOCUMENT_VERSION",
     targetId: version.id,
+    targetType: "DocumentVersion",
     sourceIp: sourceIpFromRequest(req),
   });
 

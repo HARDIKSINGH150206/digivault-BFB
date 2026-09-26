@@ -2,6 +2,7 @@ import { PDFDocument } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
 import { getPagePng } from "@/lib/storage";
 import { checkShareDownloadable } from "@/lib/shares-repo";
+import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,7 @@ const ERROR_RESPONSES = {
  * "redacted document" download.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { token: string } }
 ): Promise<Response> {
   const check = await checkShareDownloadable(params.token);
@@ -64,6 +65,23 @@ export async function GET(
     page.drawImage(embedded, { x: 0, y: 0, width: embedded.width, height: embedded.height });
   }
   const pdfBytes = await pdf.save();
+
+  // Attributed to the share's creator; see resolveShareView in lib/shares-repo.ts.
+  await writeAuditLog({
+    actorId: check.createdBy,
+    action: "SHARE_LINK_DOWNLOADED",
+    targetId: check.shareId,
+    targetType: "DocumentShare",
+    targetMeta: {
+      accessedBy: "share_recipient",
+      recipientLabel: check.recipientLabel,
+      documentId: check.documentId,
+      versionId: latestVersion.id,
+      versionNo: latestVersion.versionNo,
+      pageCount: tiles.length,
+    },
+    sourceIp: sourceIpFromRequest(req),
+  });
 
   return new Response(new Uint8Array(pdfBytes), {
     headers: {

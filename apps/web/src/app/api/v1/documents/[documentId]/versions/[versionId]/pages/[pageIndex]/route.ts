@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { getPagePng } from "@/lib/storage";
+import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -24,8 +25,9 @@ export async function GET(
   req: Request,
   { params }: { params: { documentId: string; versionId: string; pageIndex: string } }
 ): Promise<Response> {
+  let actor;
   try {
-    requireRole(req, ALL_ROLES);
+    actor = requireRole(req, ALL_ROLES);
   } catch (err) {
     if (err instanceof RbacError) return rbacErrorResponse(err);
     throw err;
@@ -43,6 +45,15 @@ export async function GET(
   } catch {
     return Response.json({ error: "NOT_FOUND", message: "Page not found in storage." }, { status: 404 });
   }
+
+  await writeAuditLog({
+    actorId: actor.userId,
+    action: "VIEW_DOCUMENT_VERSION",
+    targetId: version.id,
+    targetType: "DocumentVersion",
+    targetMeta: { pageIndex, versionNo: version.versionNo },
+    sourceIp: sourceIpFromRequest(req),
+  });
 
   return new Response(new Uint8Array(png), {
     headers: {

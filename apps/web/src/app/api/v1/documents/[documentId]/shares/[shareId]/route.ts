@@ -34,6 +34,7 @@ export async function DELETE(
     actorId: actor.userId,
     action: "SHARE_REVOKED",
     targetId: share.id,
+    targetType: "DocumentShare",
     sourceIp: sourceIpFromRequest(req),
   });
 

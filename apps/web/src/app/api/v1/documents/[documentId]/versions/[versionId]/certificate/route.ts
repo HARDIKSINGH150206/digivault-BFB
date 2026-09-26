@@ -129,8 +129,10 @@ export async function GET(
 
   await writeAuditLog({
     actorId: actor.userId,
-    action: "GENERATE_CERTIFICATE",
+    action: "DOWNLOAD_CERTIFICATE",
     targetId: version.id,
+    targetType: "DocumentVersion",
+    targetMeta: { versionNo: version.versionNo, anchored: Boolean(anchor?.polygonTxHash) },
     sourceIp: sourceIpFromRequest(req),
   });
 

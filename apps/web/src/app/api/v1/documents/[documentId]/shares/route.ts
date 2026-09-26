@@ -61,6 +61,7 @@ export async function POST(
     actorId: actor.userId,
     action: "SHARE_CREATED",
     targetId: share.id,
+    targetType: "DocumentShare",
     sourceIp: sourceIpFromRequest(req),
   });
 

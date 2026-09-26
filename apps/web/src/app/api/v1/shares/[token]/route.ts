@@ -1,4 +1,5 @@
 import { resolveShareView } from "@/lib/shares-repo";
+import { sourceIpFromRequest } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -15,21 +16,16 @@ const ERROR_RESPONSES = {
 // GET /api/v1/shares/{token} — consent-based, unauthenticated document view.
 // The token itself is the credential; no session/RBAC check on this route.
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { token: string } }
 ): Promise<Response> {
-  const result = await resolveShareView(params.token);
+  // Audited as SHARE_LINK_ACCESSED inside resolveShareView.
+  const result = await resolveShareView(params.token, sourceIpFromRequest(req));
 
   if (result.status !== "OK") {
     const { status, body } = ERROR_RESPONSES[result.status];
     return Response.json(body, { status });
   }
-
-  // TODO: writeAuditLog requires a real actorId (AuditLog.actorId is a
-  // required FK to User) and this route has no authenticated session —
-  // there is no legitimate actor to attribute a "system" write to. Skipping
-  // the audit log here rather than fabricating a user. Revisit once there's
-  // a real system-actor convention for unauthenticated consent views.
 
   return Response.json({
     recipientLabel: result.recipientLabel,
