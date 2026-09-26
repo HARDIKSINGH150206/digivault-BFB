@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
@@ -57,8 +58,10 @@ export async function POST(
     );
   }
 
+  const token = crypto.randomBytes(32).toString("base64url");
   const share = await prisma.documentShare.create({
     data: {
+      token,
       documentId: params.documentId,
       createdBy: actor.userId,
       recipientLabel: body.recipientLabel,

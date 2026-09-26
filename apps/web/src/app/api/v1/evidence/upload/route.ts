@@ -41,7 +41,12 @@ export async function POST(req: Request): Promise<Response> {
   if (typeof metadataRaw !== "string") {
     return Response.json({ error: "BAD_REQUEST", message: "Missing metadata part." }, { status: 400 });
   }
-  const metadata = JSON.parse(metadataRaw) as UploadMetadata;
+  let metadata: UploadMetadata;
+  try {
+    metadata = JSON.parse(metadataRaw) as UploadMetadata;
+  } catch {
+    return Response.json({ error: "Invalid metadata" }, { status: 400 });
+  }
 
   if (metadata.tiles.length !== metadata.page_count * metadata.grid_size ** 2) {
     return Response.json(
