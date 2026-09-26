@@ -10,7 +10,7 @@ const prisma = new PrismaClient();
 const BCRYPT_COST = 12;
 
 const seedUsers = [
-  { role: "POLICE_OFFICER", serviceNumber: "UP/2021/4821", pin: "112233" },
+  { role: "POLICE_OFFICER", serviceNumber: "BR/2021/6614", pin: "112233" },
   { role: "INVESTIGATING_OFFICER", serviceNumber: "DL/2019/3301", pin: "223344" },
   { role: "COURT_OFFICIAL", serviceNumber: "MH/2020/5512", pin: "334455" },
   { role: "FORENSIC_LAB", serviceNumber: "KA/2022/7891", pin: "445566" },

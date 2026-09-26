@@ -149,7 +149,7 @@ The seed script is idempotent and creates one user per role plus a test case:
 
 | Role | Service Number | PIN |
 |---|---|---|
-| Police Officer | `UP/2021/4821` | `112233` |
+| Police Officer | `BR/2021/6614` | `112233` |
 | Investigating Officer | `DL/2019/3301` | `223344` |
 | Court Official | `MH/2020/5512` | `334455` |
 | Forensic Lab | `KA/2022/7891` | `445566` |
