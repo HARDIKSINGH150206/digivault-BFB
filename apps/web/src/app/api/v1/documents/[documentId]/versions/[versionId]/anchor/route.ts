@@ -2,20 +2,15 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { requireStepUp } from "@/lib/step-up";
-import { putObjectLocked } from "@/lib/storage";
-import { anchorRootOnChain } from "@/lib/polygon";
-import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { anchorVersion } from "@/lib/anchor";
+import { sourceIpFromRequest } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
 /**
- * docs/04-api-spec.md endpoint 4 documents this as async + poll, because a
- * Polygon tx shouldn't block an HTTP request. There's no job queue in this
- * codebase yet, though (no Redis/BullMQ), so POST below actually runs
- * start-to-finish synchronously — MinIO write, then the on-chain call — and
- * GET just re-reads whatever AnchorLog row that left behind. Flagging this
- * as a real gap against the documented contract, not pretending it's
- * fire-and-forget: see the audit report.
+ * Versions are anchored automatically after upload and after confirmed
+ * redactions (lib/anchor.ts). POST here is the manual retry for a FAILED
+ * (or never-started) anchor; it runs synchronously and returns the outcome.
  */
 
 // POST /api/v1/documents/{documentId}/versions/{versionId}/anchor
@@ -37,70 +32,32 @@ export async function POST(
     return Response.json({ error: "NOT_FOUND", message: "Document version not found." }, { status: 404 });
   }
 
-  const objectLockUri = await putObjectLocked(
-    `${params.documentId}/v${version.versionNo}/merkle-root.json`,
-    Buffer.from(JSON.stringify({ merkle_root: version.merkleRoot, version_no: version.versionNo }))
-  );
+  const result = await anchorVersion(version.id, actor.userId, sourceIpFromRequest(req));
+  const log = result.anchorLog;
 
-  const anchorLog = await prisma.anchorLog.create({
-    data: {
-      documentVersionId: version.id,
-      chainRootHash: version.merkleRoot,
-      objectLockUri,
-      polygonTxHash: null,
-    },
-  });
-
-  await writeAuditLog({
-    actorId: actor.userId,
-    action: "ANCHOR_INITIATED",
-    targetId: anchorLog.id,
-    sourceIp: sourceIpFromRequest(req),
-  });
-
-  try {
-    const { txHash } = await anchorRootOnChain(version.id, version.merkleRoot);
-    const updated = await prisma.anchorLog.update({
-      where: { id: anchorLog.id },
-      data: { polygonTxHash: txHash },
+  if (result.status === "ANCHORED") {
+    return Response.json({
+      anchor_log_id: log!.id,
+      document_version_id: version.id,
+      status: "ANCHORED",
+      chain_root_hash: log!.chainRootHash,
+      object_lock_uri: log!.objectLockUri,
+      polygon_tx_hash: log!.polygonTxHash,
+      anchored_at: log!.anchoredAt.toISOString(),
     });
-
-    await writeAuditLog({
-      actorId: actor.userId,
-      action: "ANCHOR_COMPLETE",
-      targetId: updated.id,
-      sourceIp: sourceIpFromRequest(req),
-    });
-
-    return Response.json(
-      {
-        anchor_log_id: updated.id,
-        document_version_id: version.id,
-        status: "COMPLETE",
-        chain_root_hash: updated.chainRootHash,
-        object_lock_uri: updated.objectLockUri,
-        polygon_tx_hash: updated.polygonTxHash,
-        anchored_at: updated.anchoredAt.toISOString(),
-      },
-      { status: 200 }
-    );
-  } catch (err) {
-    // MinIO half already succeeded and is persisted; only the on-chain
-    // half failed. Schema has no FAILED-state column (see comment above) —
-    // the AnchorLog row stays with polygonTxHash: null, indistinguishable
-    // from "still pending" on the next GET. Flagged as a gap, not silently patched.
-    return Response.json(
-      {
-        anchor_log_id: anchorLog.id,
-        document_version_id: version.id,
-        status: "FAILED",
-        reason: err instanceof Error ? err.message : String(err),
-        object_lock_uri: objectLockUri,
-        polygon_tx_hash: null,
-      },
-      { status: 502 }
-    );
   }
+
+  return Response.json(
+    {
+      anchor_log_id: log?.id ?? null,
+      document_version_id: version.id,
+      status: "FAILED",
+      reason: result.error,
+      object_lock_uri: log?.objectLockUri || null,
+      polygon_tx_hash: null,
+    },
+    { status: 502 }
+  );
 }
 
 // GET /api/v1/documents/{documentId}/versions/{versionId}/anchor — poll.
@@ -132,7 +89,8 @@ export async function GET(
   return Response.json({
     anchor_log_id: anchorLog.id,
     document_version_id: params.versionId,
-    status: anchorLog.polygonTxHash ? "COMPLETE" : "PENDING",
+    status: anchorLog.status,
+    error_message: anchorLog.errorMessage,
     chain_root_hash: anchorLog.chainRootHash,
     object_lock_uri: anchorLog.objectLockUri,
     polygon_tx_hash: anchorLog.polygonTxHash,

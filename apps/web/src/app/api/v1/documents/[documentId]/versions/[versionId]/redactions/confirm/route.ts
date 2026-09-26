@@ -7,6 +7,7 @@ import { redactPagePng, recomputeDocumentHashes } from "@/lib/server-hash";
 import { computeChainHash } from "@/lib/chain-hash";
 import { replaceDocumentTiles } from "@/lib/tiles-repo";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { anchorVersionInBackground } from "@/lib/anchor";
 
 export const runtime = "nodejs";
 
@@ -90,7 +91,7 @@ export async function POST(
   }
   const storageUri = `s3://${process.env.MINIO_BUCKET ?? "digivault-evidence"}/${storagePrefix}/`;
 
-  const newVersion = await prisma.documentVersion.create({
+  let newVersion = await prisma.documentVersion.create({
     data: {
       documentId,
       versionNo,
@@ -126,6 +127,13 @@ export async function POST(
 
   await prisma.document.update({ where: { id: documentId }, data: { currentVersionId: newVersion.id } });
 
+  // Only now — pages, tiles and flags all written — is this a complete
+  // redacted version that share links may serve (see shares/[token]/download).
+  newVersion = await prisma.documentVersion.update({
+    where: { id: newVersion.id },
+    data: { status: "READY", isRedacted: true },
+  });
+
   await writeAuditLog({
     actorId: actor.userId,
     action: "CONFIRM_REDACTIONS",
@@ -150,6 +158,9 @@ export async function POST(
     sourceIp: sourceIpFromRequest(req),
   });
 
+  // Every version is anchored (CLAUDE.md rule 3); never fails the confirm.
+  anchorVersionInBackground(newVersion.id, actor.userId, sourceIpFromRequest(req));
+
   return Response.json(
     {
       document_version_id: newVersion.id,
@@ -158,6 +169,7 @@ export async function POST(
       chain_hash: chainHash,
       merkle_root: serverComputed.merkleRoot,
       status: newVersion.status,
+      anchor_status: "PENDING",
       redacted_tile_count: body.confirmed_tile_indices.length,
     },
     { status: 201 }

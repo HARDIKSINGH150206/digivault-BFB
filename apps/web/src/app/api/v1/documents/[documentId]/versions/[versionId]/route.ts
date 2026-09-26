@@ -57,6 +57,7 @@ export async function GET(
     grid_size: version.gridSize,
     tile_count: tileCount,
     status: version.status,
+    is_redacted: version.isRedacted,
     merkle_root: version.merkleRoot,
     client_hash: version.clientHash,
     chain_hash: version.chainHash,
@@ -66,7 +67,8 @@ export async function GET(
     created_at: version.timestamp.toISOString(),
     anchor: anchor
       ? {
-          status: anchor.polygonTxHash ? "COMPLETE" : "PENDING",
+          status: anchor.status,
+          error_message: anchor.errorMessage,
           object_lock_uri: anchor.objectLockUri,
           polygon_tx_hash: anchor.polygonTxHash,
           anchored_at: anchor.anchoredAt.toISOString(),

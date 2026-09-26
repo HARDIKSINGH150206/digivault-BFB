@@ -8,6 +8,7 @@ import { replaceDocumentTiles } from "@/lib/tiles-repo";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { requestRedactionSuggestions } from "@/lib/ai-service";
 import { persistSuggestionsAsFlags } from "@/lib/redaction-suggestions-repo";
+import { anchorVersionInBackground } from "@/lib/anchor";
 
 export const runtime = "nodejs";
 
@@ -133,7 +134,7 @@ export async function POST(req: Request): Promise<Response> {
   }
   const storageUri = `s3://${process.env.MINIO_BUCKET ?? "digivault-evidence"}/${storagePrefix}/`;
 
-  const version = await prisma.documentVersion.create({
+  let version = await prisma.documentVersion.create({
     data: {
       documentId,
       versionNo,
@@ -152,6 +153,11 @@ export async function POST(req: Request): Promise<Response> {
   await prisma.document.update({ where: { id: documentId }, data: { currentVersionId: version.id } });
   await replaceDocumentTiles(documentId, serverComputed.tiles);
 
+  // Hashes verified, pages stored, tiles written: the version is READY.
+  // Anchor state is tracked separately on AnchorLog, so an anchor failure
+  // below never turns a valid upload into a FAILED one.
+  version = await prisma.documentVersion.update({ where: { id: version.id }, data: { status: "READY" } });
+
   await writeAuditLog({
     actorId: actor.userId,
     action: "UPLOAD_DOCUMENT_VERSION",
@@ -159,6 +165,9 @@ export async function POST(req: Request): Promise<Response> {
     targetType: "DocumentVersion",
     sourceIp: sourceIpFromRequest(req),
   });
+
+  // Auto-anchor (MinIO + Polygon) in the background; never fails the upload.
+  anchorVersionInBackground(version.id, actor.userId, sourceIpFromRequest(req));
 
   // docs/02 step 10-11: send pages to ai-service for redaction targeting.
   // Real HTTP call to apps/ai-service (bilingual English + Hindi NER
@@ -187,6 +196,7 @@ export async function POST(req: Request): Promise<Response> {
       document_version_id: version.id,
       version_no: versionNo,
       status: version.status,
+      anchor_status: "PENDING",
       grid_size: metadata.grid_size,
       merkle_root: serverComputed.merkleRoot,
       client_hash: serverComputed.clientHash,
