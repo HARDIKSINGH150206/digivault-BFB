@@ -36,15 +36,15 @@ export async function GET(
       title: result.document.title,
       docType: result.document.docType,
       caseNumber: result.document.caseNumber,
-      latestAnchoredVersion: result.document.latestAnchoredVersion
+      redactedVersion: result.document.redactedVersion
         ? {
-            id: result.document.latestAnchoredVersion.id,
-            versionNo: result.document.latestAnchoredVersion.versionNo,
-            merkleRoot: result.document.latestAnchoredVersion.merkleRoot,
-            chainHash: result.document.latestAnchoredVersion.chainHash,
-            timestamp: result.document.latestAnchoredVersion.timestamp.toISOString(),
-            storageUri: result.document.latestAnchoredVersion.storageUri,
-            polygonTxHash: result.document.latestAnchoredVersion.polygonTxHash,
+            id: result.document.redactedVersion.id,
+            versionNo: result.document.redactedVersion.versionNo,
+            merkleRoot: result.document.redactedVersion.merkleRoot,
+            chainHash: result.document.redactedVersion.chainHash,
+            timestamp: result.document.redactedVersion.timestamp.toISOString(),
+            storageUri: result.document.redactedVersion.storageUri,
+            polygonTxHash: result.document.redactedVersion.polygonTxHash,
           }
         : null,
     },

@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { getLatestRedactedVersion } from "@/lib/shares-repo";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,15 @@ export async function POST(
   const document = await prisma.document.findUnique({ where: { id: params.documentId } });
   if (!document) {
     return Response.json({ error: "NOT_FOUND", message: "Document not found." }, { status: 404 });
+  }
+
+  // Share links only ever serve a redacted version (F-03), so there is
+  // nothing to share until redactions have been confirmed.
+  if (!(await getLatestRedactedVersion(params.documentId))) {
+    return Response.json(
+      { error: "NO_REDACTED_VERSION", message: "No redacted version available for sharing" },
+      { status: 403 }
+    );
   }
 
   const body = (await req.json()) as CreateShareBody;
@@ -90,12 +100,16 @@ export async function GET(
     throw err;
   }
 
-  const shares = await prisma.documentShare.findMany({
-    where: { documentId: params.documentId },
-    orderBy: { createdAt: "desc" },
-  });
+  const [shares, redactedVersion] = await Promise.all([
+    prisma.documentShare.findMany({
+      where: { documentId: params.documentId },
+      orderBy: { createdAt: "desc" },
+    }),
+    getLatestRedactedVersion(params.documentId),
+  ]);
 
   return Response.json({
+    sharedVersion: redactedVersion ? { id: redactedVersion.id, versionNo: redactedVersion.versionNo } : null,
     shares: shares.map((s) => ({
       id: s.id,
       token: s.token,

@@ -16,15 +16,7 @@ export type ShareViewResult =
         title: string;
         docType: string;
         caseNumber: string;
-        latestAnchoredVersion: {
-          id: string;
-          versionNo: number;
-          merkleRoot: string;
-          chainHash: string;
-          timestamp: Date;
-          storageUri: string;
-          polygonTxHash: string | null;
-        } | null;
+        redactedVersion: SharedVersion | null;
       };
     };
 
@@ -57,7 +49,7 @@ export async function resolveShareView(token: string, sourceIp: string): Promise
     data: { viewCount: { increment: 1 } },
   });
 
-  const latestVersion = await getLatestAnchoredVersion(share.documentId);
+  const latestVersion = await getLatestRedactedVersion(share.documentId);
 
   await writeAuditLog({
     actorId: share.createdBy,
@@ -85,12 +77,12 @@ export async function resolveShareView(token: string, sourceIp: string): Promise
       title: share.document.title,
       docType: share.document.docType,
       caseNumber: share.document.case.caseNumber,
-      latestAnchoredVersion: latestVersion,
+      redactedVersion: latestVersion,
     },
   };
 }
 
-type LatestAnchoredVersion = {
+export type SharedVersion = {
   id: string;
   versionNo: number;
   merkleRoot: string;
@@ -100,14 +92,18 @@ type LatestAnchoredVersion = {
   polygonTxHash: string | null;
 };
 
-async function getLatestAnchoredVersion(documentId: string): Promise<LatestAnchoredVersion | null> {
-  const versions = await prisma.documentVersion.findMany({
-    where: { documentId, anchors: { some: {} } },
-    orderBy: { timestamp: "desc" },
-    take: 1,
-    include: { anchors: { orderBy: { anchoredAt: "desc" }, take: 1 } },
+/**
+ * The only version a share link may ever expose (F-03): the newest one
+ * produced by confirmed redactions. The original upload is never served,
+ * even if it is the only anchored version. Null means nothing is
+ * shareable yet.
+ */
+export async function getLatestRedactedVersion(documentId: string): Promise<SharedVersion | null> {
+  const version = await prisma.documentVersion.findFirst({
+    where: { documentId, isRedacted: true, status: "READY" },
+    orderBy: { versionNo: "desc" },
+    include: { anchors: { where: { status: "ANCHORED" }, orderBy: { anchoredAt: "desc" }, take: 1 } },
   });
-  const version = versions[0];
   if (!version) return null;
   return {
     id: version.id,

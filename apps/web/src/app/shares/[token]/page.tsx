@@ -41,7 +41,7 @@ export default async function SharedDocumentPage({ params }: { params: { token: 
   }
 
   const { document, recipientLabel, expiresAt, viewsRemaining } = result;
-  const version = document.latestAnchoredVersion;
+  const version = document.redactedVersion;
   const anchored = Boolean(version?.polygonTxHash);
 
   return (
