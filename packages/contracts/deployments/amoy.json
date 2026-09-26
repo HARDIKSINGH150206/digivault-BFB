@@ -1,0 +1,10 @@
+{
+  "network": "amoy",
+  "chainId": 80002,
+  "contractName": "EvidenceAnchor",
+  "address": "0x6B8c4e1Dce347b9fa40381818217C6262EB56Ba4",
+  "deployTxHash": "0xc88a417d71bb1aecfd9708106666a10fd530a3963bbb32b67d9054c0b70f071a",
+  "deployedBy": "0xDce09d537ec225ACE671f74B2e3Cb207337a23F8",
+  "blockNumber": 47667443,
+  "deployedAt": "2026-09-15T16:27:00.806Z"
+}

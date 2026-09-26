@@ -1,0 +1,161 @@
+// DigiVault database schema — source of truth for all migrations.
+// Run `npx prisma migrate dev --name init` after this file is finalized
+// to generate the actual SQL migration; don't hand-write migrations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  POLICE_OFFICER
+  INVESTIGATING_OFFICER
+  COURT_OFFICIAL
+  FORENSIC_LAB
+  ADMIN
+}
+
+enum DocumentSourceType {
+  SCANNED
+  NATIVE_PDF
+}
+
+enum DocumentStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  role         Role
+  department   String
+  authIdentity String   @unique
+  mfaStatus    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  casesCreated Case[]             @relation("CaseCreatedBy")
+  uploads      DocumentVersion[]
+  auditEntries AuditLog[]
+  sharesCreated      DocumentShare[]   @relation("ShareCreatedBy")
+  redactionsReviewed RedactionFlag[]   @relation("RedactionReviewer")
+}
+
+model Case {
+  id         String   @id @default(cuid())
+  caseNumber String   @unique
+  caseType   String
+  status     String
+  department String
+  createdBy  User     @relation("CaseCreatedBy", fields: [createdById], references: [id])
+  createdById String
+  createdAt  DateTime @default(now())
+
+  documents Document[]
+}
+
+model Document {
+  id                String             @id @default(cuid())
+  case              Case               @relation(fields: [caseId], references: [id])
+  caseId            String
+  title             String
+  docType           String
+  sourceType        DocumentSourceType
+  uploaderId        String
+  currentVersionId  String?
+  createdAt         DateTime           @default(now())
+
+  versions DocumentVersion[]
+  tiles    Tile[]
+  shares   DocumentShare[]
+}
+
+model DocumentVersion {
+  id           String         @id @default(cuid())
+  document     Document       @relation(fields: [documentId], references: [id])
+  documentId   String
+  versionNo    Int
+  merkleRoot   String
+  clientHash   String
+  storageUri   String
+  previousHash String?
+  chainHash    String
+  gridSize     Int            @default(20)
+  uploadedBy   User           @relation(fields: [uploadedById], references: [id])
+  uploadedById String
+  status       DocumentStatus @default(PROCESSING)
+  timestamp    DateTime       @default(now())
+
+  anchors AnchorLog[]
+
+  @@unique([documentId, versionNo])
+}
+
+model Tile {
+  id              String   @id @default(cuid())
+  document        Document @relation(fields: [documentId], references: [id])
+  documentId      String
+  tileIndex       Int
+  pageIndex       Int
+  row             Int
+  col             Int
+  tileHash        String
+  merkleLeafIndex Int
+
+  redactionFlags RedactionFlag[]
+}
+
+model RedactionFlag {
+  id              String   @id @default(cuid())
+  tile            Tile     @relation(fields: [tileId], references: [id])
+  tileId          String
+  entityType      String   // e.g. "victim_name", "phone", "address"
+  confidenceScore Float
+  masked          Boolean  @default(false)
+  source          String   // "text_layer" | "bhashini_ocr" | "indicner"
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  reviewer     User?     @relation("RedactionReviewer", fields: [reviewedBy], references: [id])
+}
+
+// Insert-only by convention — application layer must never expose
+// update/delete for this model. Enforce with a DB-level REVOKE on the
+// app's connection role as well; do not rely on Prisma alone for this.
+model AuditLog {
+  id        String   @id @default(cuid())
+  actor     User     @relation(fields: [actorId], references: [id])
+  actorId   String
+  action    String
+  targetId  String
+  timestamp DateTime @default(now())
+  sourceIp  String
+}
+
+model AnchorLog {
+  id                String           @id @default(cuid())
+  documentVersion    DocumentVersion @relation(fields: [documentVersionId], references: [id])
+  documentVersionId  String
+  chainRootHash      String
+  anchoredAt         DateTime        @default(now())
+  objectLockUri      String
+  polygonTxHash       String?
+}
+
+model DocumentShare {
+  id             String    @id @default(cuid())
+  document       Document  @relation(fields: [documentId], references: [id])
+  documentId     String
+  createdBy      String
+  createdByUser  User      @relation("ShareCreatedBy", fields: [createdBy], references: [id])
+  token          String    @unique @default(cuid())
+  recipientLabel String
+  expiresAt      DateTime
+  maxViews       Int       @default(3)
+  viewCount      Int       @default(0)
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+}

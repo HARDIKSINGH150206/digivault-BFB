@@ -1,0 +1,18 @@
+{
+  "name": "@digivault/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:amoy": "hardhat run scripts/deploy.ts --network amoy"
+  },
+  "devDependencies": {
+    "hardhat": "^2.22.10",
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
+    "ethers": "^6.13.2",
+    "dotenv": "^16.4.5",
+    "typescript": "^5.6.2",
+    "ts-node": "^10.9.2",
+    "@types/node": "^20.14.0"
+  }
+}

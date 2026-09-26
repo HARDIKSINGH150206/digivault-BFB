@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.9
+spacy>=3.7.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+# en_core_web_sm: python -m spacy download en_core_web_sm
+# OS: sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin
