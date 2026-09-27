@@ -7,7 +7,7 @@ from .real_suggestions import generate_suggestions
 from .schemas import SuggestionRequest, SuggestionResponse
 
 app = FastAPI(title="DigiVault AI Service", description=(
-        "Bilingual (English + Hindi/Devanagari) NER redaction service. "
+        "Multilingual (English + Hindi/Devanagari + Kannada) NER redaction service. "
         "Suggests grid tiles to redact; suggestion-only, never touches the Merkle hash."
     ),
 )

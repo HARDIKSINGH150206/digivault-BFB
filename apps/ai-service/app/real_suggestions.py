@@ -1,32 +1,64 @@
 """
 Real NER-based redaction engine for DigiVault.
-Supports English + Hindi (Devanagari) documents.
+Supports English + Hindi (Devanagari) + Kannada documents. Kannada OCR
+needs the tesseract-ocr-kan language pack; without it pages are OCR'd as
+eng+hin and only script-independent patterns (digits, Latin) match.
 """
 
 from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 _spacy_nlp = None
+_spacy_lock = threading.Lock()
 _tesseract_available: Optional[bool] = None
+_ocr_lang_cache: Optional[str] = None
+
+# Requested only if installed, so a missing optional pack (kan) degrades
+# to the old eng+hin behaviour instead of failing every page.
+_OCR_LANG_PREFERENCE = ("eng", "hin", "kan")
+
+# Pages are OCR'd concurrently: tesseract runs as a subprocess, so threads
+# overlap real work. Sequential OCR of a multi-page upload can exceed the
+# web app's 15s ai-service timeout, which drops every suggestion.
+_MAX_OCR_WORKERS = min(4, os.cpu_count() or 1)
 
 def _get_nlp():
     global _spacy_nlp
-    if _spacy_nlp is None:
-        import spacy
-        try:
-            _spacy_nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            from spacy.cli import download
-            download("en_core_web_sm")
-            _spacy_nlp = spacy.load("en_core_web_sm")
+    with _spacy_lock:
+        if _spacy_nlp is None:
+            import spacy
+            try:
+                _spacy_nlp = spacy.load("en_core_web_sm")
+            except OSError:
+                from spacy.cli import download
+                download("en_core_web_sm")
+                _spacy_nlp = spacy.load("en_core_web_sm")
     return _spacy_nlp
+
+def _ocr_lang() -> str:
+    global _ocr_lang_cache
+    if _ocr_lang_cache is None:
+        import pytesseract
+        try:
+            installed = set(pytesseract.get_languages(config=""))
+        except Exception:
+            installed = {"eng", "hin"}
+        langs = [lang for lang in _OCR_LANG_PREFERENCE if lang in installed] or ["eng"]
+        missing = [lang for lang in _OCR_LANG_PREFERENCE if lang not in installed]
+        if missing:
+            logger.warning("tesseract language packs missing: %s (OCR uses %s)", missing, "+".join(langs))
+        _ocr_lang_cache = "+".join(langs)
+    return _ocr_lang_cache
 
 def _tesseract_ok() -> bool:
     global _tesseract_available
@@ -80,7 +112,30 @@ HI_PATTERNS = [
     ("phone", r"[०-९]{10}", 0.85),
 ]
 
-ALL_PATTERNS = EN_PATTERNS + HI_PATTERNS
+# Kannada block is U+0C80–U+0CFF; explicit ranges because re's \w skips
+# Kannada vowel signs. Kannada digits (೦-೯) are matched separately below.
+# Tesseract emits a zero-width non-joiner after a word-final virama
+# (ಮೊಬೈಲ್‌, ಆಧಾರ್‌), so keywords ending in ್ allow one.
+KN_PATTERNS = [
+    ("phone", r"(?:ಮೊಬೈಲ್|ದೂರವಾಣಿ|ಫೋನ್)\u200c?\s*(?:ಸಂಖ್ಯೆ)?\s*:?\s*([6-9]\d{9})", 0.97),
+    ("aadhaar", r"ಆಧಾರ್\u200c?\s*(?:ಸಂಖ್ಯೆ)?\s*:?\s*(\d{4}[\s\-]?\d{4}[\s\-]?\d{4})", 0.95),
+    ("age", r"ವಯಸ್ಸು\s*:?\s*\d{1,3}\s*(?:ವರ್ಷ)?", 0.88),
+    ("victim_name",
+     r"(?:ಸಂತ್ರಸ್ತೆ|ದೂರುದಾರರು|ದೂರುದಾರ|ಆರೋಪಿ|ಸಾಕ್ಷಿ)\s*:?\s*([ಀ-೿]+(?:[ \t]+[ಀ-೿]+){0,3})",
+     0.91),
+    ("victim_name",
+     r"(?:ತಂದೆ|ತಾಯಿ|ಪತಿ|ಪತ್ನಿ|ಮಗಳು|ಮಗ)\s*:?\s*(?:ಶ್ರೀಮತಿ|ಶ್ರೀ|ಕು\.?)?\s*([ಀ-೿]+(?:[ \t]+[ಀ-೿]+){0,2})",
+     0.89),
+    # Up to 6 address-like tokens; a ':' ends it, so the next "label: value"
+    # on the same OCR line (e.g. ದಿನಾಂಕ: …) keeps its own entity type.
+    ("address", r"(?:ವಿಳಾಸ|ಗ್ರಾಮ|ಜಿಲ್ಲೆ|ಠಾಣೆ)\s*:?\s*([ಀ-೿\d\-/#.,]+(?:[ \t]+[ಀ-೿\d\-/#.,]+){0,5})", 0.78),
+    ("case_number", r"(?:ಪ್ರಕರಣ\s*ಸಂಖ್ಯೆ|ಅಪರಾಧ\s*ಸಂಖ್ಯೆ)\s*:?\s*([\d/\-]+)", 0.97),
+    ("dob", r"(?:ಜನ್ಮ\s*ದಿನಾಂಕ|ದಿನಾಂಕ)\s*:?\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})", 0.90),
+    ("phone", r"[೦-೯]{10}", 0.85),
+    ("aadhaar", r"[೦-೯]{4}[\s\-]?[೦-೯]{4}[\s\-]?[೦-೯]{4}", 0.85),
+]
+
+ALL_PATTERNS = EN_PATTERNS + HI_PATTERNS + KN_PATTERNS
 _compiled_patterns = [
     (etype, re.compile(pat, re.IGNORECASE | re.UNICODE), conf)
     for etype, pat, conf in ALL_PATTERNS
@@ -113,7 +168,7 @@ def _ocr_page(png_bytes: bytes) -> tuple[str, list[WordBox]]:
 
     image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
     data = pytesseract.image_to_data(
-        image, lang="eng+hin",
+        image, lang=_ocr_lang(),
         output_type=pytesseract.Output.DICT,
         config="--psm 3 --oem 3",
     )
@@ -239,17 +294,24 @@ def _deduplicate(detections: list[Detection]) -> list[Detection]:
 
 from .schemas import PageInput, Suggestion
 
+def _page_suggestions(grid_size: int, page: PageInput) -> list[Suggestion]:
+    try:
+        png_bytes = base64.b64decode(page.png_base64)
+        full_text, word_boxes = _ocr_page(png_bytes)
+        source = "text_layer"   # tesseract OCR result, reusing allowed schema value
+        spacy_hits = _run_spacy(full_text, word_boxes, page.width_px, page.height_px, grid_size, source)
+        regex_hits = _run_regex(full_text, word_boxes, page.width_px, page.height_px, grid_size, "text_layer")
+        return [
+            Suggestion(page_index=page.page_index, row=d.row, col=d.col, entity_type=d.entity_type, confidence_score=d.confidence, source=d.source)
+            for d in _deduplicate(spacy_hits + regex_hits)
+        ]
+    except Exception as exc:
+        logger.error("page %d failed: %s", page.page_index, exc, exc_info=True)
+        return []
+
 def generate_suggestions(document_version_id: str, grid_size: int, pages: list[PageInput]) -> list[Suggestion]:
-    all_suggestions = []
-    for page in pages:
-        try:
-            png_bytes = base64.b64decode(page.png_base64)
-            full_text, word_boxes = _ocr_page(png_bytes)
-            source = "text_layer"   # tesseract OCR result, reusing allowed schema value
-            spacy_hits = _run_spacy(full_text, word_boxes, page.width_px, page.height_px, grid_size, source)
-            regex_hits = _run_regex(full_text, word_boxes, page.width_px, page.height_px, grid_size, "text_layer")
-            for d in _deduplicate(spacy_hits + regex_hits):
-                all_suggestions.append(Suggestion(page_index=page.page_index, row=d.row, col=d.col, entity_type=d.entity_type, confidence_score=d.confidence, source=d.source))
-        except Exception as exc:
-            logger.error("page %d failed: %s", page.page_index, exc, exc_info=True)
-    return all_suggestions
+    if not pages:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(pages), _MAX_OCR_WORKERS)) as pool:
+        per_page = list(pool.map(lambda page: _page_suggestions(grid_size, page), pages))
+    return [s for page_suggestions in per_page for s in page_suggestions]
