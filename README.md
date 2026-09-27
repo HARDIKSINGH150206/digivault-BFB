@@ -185,6 +185,16 @@ node scripts/e2e-part2.mjs        # UI: biometric step-up, redaction, certificat
 node scripts/e2e-part3.mjs        # UI + /verify against a real Amoy anchor
 ```
 
+## Demo Credentials
+
+| Role | Service Number | PIN |
+|------|---------------|-----|
+| Admin (SP Meera Iyer) | KA/2018/1042 | 112233 |
+| Investigating Officer (Rajiv Sharma) | UP/2021/4821 | 224466 |
+| Investigating Officer (Priya Nair) | MH/2019/3307 | 335577 |
+| Court Official (Anand) | DL/2020/7755 | 446688 |
+| Forensic Expert (Dr. Kapoor) | RJ/2022/9901 | 557799 |
+
 ## Smart Contract
 
 - Network: Polygon Amoy (testnet, chainId 80002)
