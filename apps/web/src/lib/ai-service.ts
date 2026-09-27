@@ -36,7 +36,7 @@ export async function requestRedactionSuggestions(
         png_base64: p.pngBytes.toString("base64"),
       })),
     }),
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(45_000),
   });
 
   if (!res.ok) {
