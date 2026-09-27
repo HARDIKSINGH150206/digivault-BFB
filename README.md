@@ -147,13 +147,13 @@ node prisma/seed-for-testing.mjs
 
 The seed script is idempotent and creates one user per role plus a test case:
 
-| Role | Service Number | PIN |
-|---|---|---|
-| Police Officer | `BR/2021/6614` | `112233` |
-| Investigating Officer | `DL/2019/3301` | `223344` |
-| Court Official | `MH/2020/5512` | `334455` |
-| Forensic Lab | `KA/2022/7891` | `445566` |
-| Admin | `NCRB/2018/0001` | `556677` |
+| Role | Service Number |
+|---|---|
+| Police Officer | `BR/2021/6614` |
+| Investigating Officer | `DL/2019/3301` |
+| Court Official | `MH/2020/5512` |
+| Forensic Lab | `KA/2022/7891` |
+| Admin | `NCRB/2018/0001` |
 
 ### 4. AI service
 

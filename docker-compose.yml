@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: digivault
       POSTGRES_DB: digivault
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - digivault_postgres_data:/var/lib/postgresql/data
 
@@ -23,8 +23,8 @@ services:
       MINIO_ROOT_USER: digivault
       MINIO_ROOT_PASSWORD: digivault123
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - digivault_minio_data:/data
 
