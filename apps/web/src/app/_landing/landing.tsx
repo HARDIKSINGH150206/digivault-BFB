@@ -16,7 +16,7 @@ import { BrandMark } from "../dashboard/_workspace/shell";
 import { CustodyGraph } from "./custody-graph";
 import { Arrow, LpIcon, type LpIconName } from "./icons";
 import { LANDING_CSS } from "./landing-css";
-import { Landscape } from "./landscape";
+import { TileField } from "./tile-field";
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -191,7 +191,7 @@ function ProductPreview() {
             </span>
           </div>
           <div className="lp-app-banner-art">
-            <Landscape id="lp-ls-banner" className="lp-fill" meadow={false} layers={2} />
+            <TileField className="lp-fill" tone="light" seed={3} density={0.1} accents={3} redacted={4} pulses={2} />
           </div>
         </div>
 
@@ -335,11 +335,8 @@ function Hero({ signedIn }: { signedIn: boolean }) {
     <section className="lp-hero" aria-labelledby="lp-title">
       <div aria-hidden="true" className="lp-hero-bg">
         <div className="lp-hero-photo">
-          <Landscape id="lp-ls-hero" className="lp-fill" />
+          <TileField className="lp-fill" seed={7} />
         </div>
-        <div className="lp-hero-shade" />
-        <div className="lp-hero-rust" />
-        <div className="lp-hero-top" />
         <div className="lp-hero-bottom" />
       </div>
       <div className="lp-hero-inner">
@@ -393,7 +390,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
   );
 }
 
-/* ---------- Features: landscape panel, floating card, 4 tabs ---------- */
+/* ---------- Features: tile-grid panel, floating card, 4 tabs ---------- */
 
 type Step = { label: string; value: string };
 type Feature = { title: string; body: string; head: string; badge: string; big: string; unit: string; steps: Step[]; foot: string };
@@ -480,7 +477,7 @@ function Features() {
           Everything between an upload and a courtroom
         </h2>
         <div className="lp-panel" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-          <Landscape id="lp-ls-panel" className="lp-fill" />
+          <TileField className="lp-fill lp-tf-panel" seed={19} density={0.09} accents={6} pulses={6} />
           <div key={active} className="lp-float" aria-live="polite">
             <div className="lp-float-top">
               <span>{f.head}</span>
@@ -939,8 +936,7 @@ function Cta({ signedIn }: { signedIn: boolean }) {
   return (
     <section className="lp-wrap-wide lp-cta-wrap" aria-labelledby="lp-cta">
       <div className="lp-cta">
-        <Landscape id="lp-ls-cta" className="lp-fill" />
-        <div aria-hidden="true" className="lp-cta-shade" />
+        <TileField className="lp-fill lp-tf-cta" seed={29} density={0.08} accents={5} pulses={6} />
         <div className="lp-cta-brand">
           <BrandMark size={26} /> DigiVault
         </div>
