@@ -195,7 +195,7 @@ export function WorkspaceSharePanel({ documentId }: { documentId: string }) {
                     </button>
                   )}
                   {!s.revokedAt && (
-                    <button type="button" className="ws-more" style={{ color: "#CC1016" }} disabled={revokingId === s.id} onClick={() => handleRevoke(s.id)}>
+                    <button type="button" className="ws-more" style={{ color: "var(--danger)" }} disabled={revokingId === s.id} onClick={() => handleRevoke(s.id)}>
                       {revokingId === s.id ? "Revoking…" : "Revoke"}
                     </button>
                   )}

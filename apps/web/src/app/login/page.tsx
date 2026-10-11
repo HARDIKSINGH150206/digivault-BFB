@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/client/auth-context";
 import { ApiError } from "@/lib/client/api-client";
-import { manrope, inter } from "@/lib/client/fonts";
+import { fontClass } from "@/lib/client/fonts";
+import { BrandMark } from "../dashboard/_workspace/shell";
 import { EvidenceStory } from "./evidence-illustration";
 
 /*
@@ -16,12 +17,16 @@ import { EvidenceStory } from "./evidence-illustration";
  * mismatch on this page.
  */
 const PAGE_CSS = `
-.dv-login { min-height: 100vh; box-sizing: border-box; color: #1D2226; background: #F6F8FA; display: flex; flex-direction: column; }
+.dv-login { min-height: 100vh; box-sizing: border-box; color: var(--paper); background: radial-gradient(60% 45% at 50% 0%, rgba(0,153,255,0.13), rgba(0,153,255,0) 70%), var(--ink); display: flex; flex-direction: column; }
 @supports (min-height: 100dvh) { .dv-login { min-height: 100dvh; } }
 .dv-login *, .dv-login *::before, .dv-login *::after { box-sizing: border-box; }
 
 .dv-shell { width: 100%; max-width: 1440px; margin: 0 auto; padding: 0 24px; }
-.dv-header { display: flex; align-items: center; padding-top: 28px; padding-bottom: 12px; }
+.dv-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 18px; padding-bottom: 12px; }
+.dv-home { display: inline-flex; align-items: center; gap: 10px; color: var(--paper); text-decoration: none; font-weight: 600; font-size: 18px; letter-spacing: -0.4px; }
+.dv-back { font-size: 14px; color: var(--paper-3); text-decoration: none; }
+.dv-back:hover { color: var(--paper); }
+.dv-home:focus-visible, .dv-back:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
 
 .dv-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; padding-top: 24px; padding-bottom: 48px; flex: 1; align-content: center; }
 .dv-intro { grid-row: 1; }
@@ -43,47 +48,47 @@ const PAGE_CSS = `
   .dv-grid { column-gap: 80px; }
 }
 
-.dv-eyebrow { margin: 0 0 20px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: #5E5E5E; }
-.dv-headline { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(44px, 5.2vw, 78px); line-height: 0.98; letter-spacing: -0.04em; word-spacing: 0.14em; color: #1D2226; }
+.dv-eyebrow { margin: 0 0 18px; font-size: 14px; font-weight: 500; color: var(--brand); }
+.dv-headline { margin: 0; font-family: var(--font-display); font-weight: 500; font-size: clamp(44px, 5.2vw, 74px); line-height: 1; letter-spacing: -0.045em; word-spacing: 0.06em; color: var(--paper); }
 .dv-word { white-space: nowrap; }
-.dv-accent { color: #0A66C2; }
-.dv-lede { margin: 22px 0 0; max-width: 500px; font-size: 17px; line-height: 1.55; color: #5E5E5E; }
+.dv-accent { color: var(--paper-4); }
+.dv-lede { margin: 22px 0 0; max-width: 500px; font-size: 17px; line-height: 1.55; color: var(--paper-3); }
 
-.dv-card-panel { background: #FFFFFF; border: 1px solid #E3E8ED; border-radius: 12px; padding: 36px 36px 30px; box-shadow: 0 1px 3px rgba(29,34,38,0.06); }
+.dv-card-panel { background: var(--ink-2); border-radius: 20px; padding: 34px 34px 28px; box-shadow: var(--shadow-card), 0 40px 100px -40px rgba(0,153,255,0.25); }
 @media (max-width: 480px) { .dv-card-panel { padding: 28px 22px 24px; } }
 
 .dv-field + .dv-field { margin-top: 16px; }
-.dv-label { display: block; font-size: 14px; font-weight: 600; color: #1D2226; }
-.dv-input { display: block; width: 100%; height: 48px; margin-top: 8px; border: 1px solid #D0D7DE; border-radius: 8px; background: #FFFFFF; padding: 0 14px; font: inherit; font-size: 15.5px; color: #1D2226; transition: border-color 120ms ease, box-shadow 120ms ease; }
-.dv-input:hover:not(:disabled) { border-color: #8A939B; }
-.dv-input:focus-visible { outline: none; border-color: #0A66C2; box-shadow: 0 0 0 3px rgba(10,102,194,0.2); }
-.dv-input:disabled { background: #F6F8FA; color: #8A939B; }
-.dv-input::placeholder { color: #8A939B; }
+.dv-label { display: block; font-size: 13.5px; font-weight: 500; color: var(--paper-2); }
+.dv-input { display: block; width: 100%; height: 46px; margin-top: 8px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--ink); padding: 0 14px; font: inherit; font-size: 15px; color: var(--paper); transition: border-color 120ms ease, box-shadow 120ms ease; }
+.dv-input:hover:not(:disabled) { border-color: var(--line-3); }
+.dv-input:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.dv-input:disabled { background: var(--ink-3); color: var(--paper-4); }
+.dv-input::placeholder { color: var(--paper-4); }
 
-.dv-primary { width: 100%; height: 48px; margin-top: 20px; border: 0; border-radius: 8px; background: #0A66C2; color: #FFFFFF;
-  font: inherit; font-size: 15.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+.dv-primary { width: 100%; height: 46px; margin-top: 22px; border: 0; border-radius: 999px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-lift);
+  font: inherit; font-size: 15px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   cursor: pointer; transition: background-color 120ms ease; }
-.dv-primary:hover:not(:disabled) { background: #004182; }
-.dv-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px #FFFFFF, 0 0 0 5px #0A66C2; }
-.dv-primary:disabled { background: #E3E8ED; color: #6B737A; cursor: not-allowed; }
+.dv-primary:hover:not(:disabled) { background: #ffffff; }
+.dv-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ink-2), 0 0 0 4px var(--brand); }
+.dv-primary:disabled { background: var(--ink-4); color: var(--paper-4); box-shadow: none; cursor: not-allowed; }
 
-.dv-spinner { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.45); border-top-color: #FFFFFF; animation: dv-spin 800ms linear infinite; }
+.dv-spinner { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(10,10,10,0.25); border-top-color: var(--ink); animation: dv-spin 800ms linear infinite; }
 
-.dv-alert { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #FDF1F1; border: 1px solid #F4C7C8; color: #A30D12; font-size: 14px; line-height: 1.45; }
+.dv-alert { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--danger-soft); border: 1px solid var(--danger-line); color: var(--danger); font-size: 14px; line-height: 1.45; }
 
-.dv-verify-line { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid #E3E8ED; font-size: 14px; color: #5E5E5E; }
-.dv-verify-line a { color: #0A66C2; font-weight: 600; text-decoration: none; }
+.dv-verify-line { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--line); font-size: 14px; color: var(--paper-3); }
+.dv-verify-line a { color: var(--paper); font-weight: 500; text-decoration: none; }
 .dv-verify-line a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.dv-verify-line a:focus-visible { outline: 2px solid #0A66C2; outline-offset: 2px; border-radius: 2px; }
+.dv-verify-line a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
 
-.dv-story { position: relative; overflow: hidden; padding: 44px 40px 30px; border-radius: 22px; border: 1px solid rgba(208,215,222,0.55);
-  background: radial-gradient(120% 90% at 85% 30%, rgba(10,102,194,0.07) 0%, rgba(10,102,194,0) 55%), linear-gradient(180deg, #FFFFFF 0%, #EEF3F8 100%);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9); }
+.dv-story { position: relative; overflow: hidden; padding: 44px 40px 30px; border-radius: 22px; border: 1px solid var(--line);
+  background: radial-gradient(120% 90% at 85% 30%, rgba(0,153,255,0.16) 0%, rgba(0,153,255,0) 55%), linear-gradient(180deg, #151515 0%, #0e0e0e 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05); }
 .dv-story-texture { position: absolute; inset: 0; pointer-events: none;
-  background-image: radial-gradient(rgba(29,34,38,0.08) 1px, transparent 1.3px); background-size: 18px 18px;
+  background-image: radial-gradient(rgba(242,239,233,0.1) 1px, transparent 1.3px); background-size: 18px 18px;
   -webkit-mask-image: radial-gradient(ellipse at 60% 40%, black 5%, transparent 72%); mask-image: radial-gradient(ellipse at 60% 40%, black 5%, transparent 72%); }
 .dv-story-bloom { position: absolute; right: -10%; top: -12%; width: 58%; height: 125%; pointer-events: none;
-  background: radial-gradient(closest-side, rgba(10,102,194,0.13), rgba(10,102,194,0)); animation: dv-bloom 11s ease-in-out infinite; }
+  background: radial-gradient(closest-side, rgba(0,153,255,0.18), rgba(0,153,255,0)); animation: dv-bloom 11s ease-in-out infinite; }
 .dv-orbits { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 .dv-story-track { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; column-gap: 4px; }
@@ -97,7 +102,7 @@ const PAGE_CSS = `
 .dv-echo { position: absolute; inset: 0; border-radius: 10px; border: 1px solid rgba(29,34,38,0.07);
   background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(233,239,245,0.95)); box-shadow: 0 10px 22px -16px rgba(29,34,38,0.25); }
 .dv-ground { width: 72%; height: 14px; margin: 14px auto 0; border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(29,34,38,0.16), rgba(29,34,38,0)); animation: dv-ground 9s ease-in-out infinite; }
+  background: radial-gradient(closest-side, rgba(0,0,0,0.6), rgba(0,0,0,0)); animation: dv-ground 9s ease-in-out infinite; }
 
 .dv-connector { align-self: center; margin-bottom: 64px; overflow: visible; }
 .dv-connector-path { stroke-dasharray: 1; stroke-dashoffset: 0; animation: dv-draw 650ms ease-out both; }
@@ -106,8 +111,8 @@ const PAGE_CSS = `
 
 .dv-sheet { position: relative; width: 100%; aspect-ratio: 0.77; padding: 14% 12%; border-radius: 10px; border: 1px solid rgba(29,34,38,0.09);
   background: linear-gradient(180deg, #FFFFFF 0%, #FBFCFD 100%);
-  box-shadow: inset 0 1px 0 #FFFFFF, 0 1px 2px rgba(29,34,38,0.05), 0 14px 28px -16px rgba(29,34,38,0.22), 0 30px 60px -34px rgba(10,60,120,0.28); }
-.dv-sheet-verifiable { border-color: rgba(10,102,194,0.22); }
+  box-shadow: inset 0 1px 0 #FFFFFF, 0 1px 2px rgba(29,34,38,0.05), 0 14px 28px -16px rgba(29,34,38,0.22), 0 30px 60px -34px rgba(0,0,0,0.8); }
+.dv-sheet-verifiable { border-color: rgba(0,153,255,0.4); }
 .dv-sheet-title { width: 58%; height: 8px; border-radius: 4px; background: #AEB9C4; }
 .dv-sheet-sub { width: 34%; height: 5px; margin-top: 7px; border-radius: 3px; background: #D5DCE3; }
 .dv-sheet-rule { height: 1px; margin: 12% 0 10%; background: #E7ECF1; }
@@ -120,21 +125,21 @@ const PAGE_CSS = `
 .dv-photo-mask { position: absolute; inset: 0; background: #1D2226; animation: dv-mask 500ms ease-out both; }
 
 .dv-scan { position: absolute; left: 6%; right: 6%; top: 94%; height: 2px; opacity: 0; pointer-events: none;
-  background: linear-gradient(90deg, rgba(10,102,194,0), rgba(10,102,194,0.55), rgba(10,102,194,0));
-  box-shadow: 0 0 14px 2px rgba(10,102,194,0.18); animation: dv-scan 1150ms ease-in-out 420ms both; }
+  background: linear-gradient(90deg, rgba(0,153,255,0), rgba(0,153,255,0.6), rgba(0,153,255,0));
+  box-shadow: 0 0 14px 2px rgba(0,153,255,0.22); animation: dv-scan 1150ms ease-in-out 420ms both; }
 .dv-sheet-grid { position: absolute; inset: 0; border-radius: 10px; pointer-events: none;
-  background-image: linear-gradient(rgba(10,102,194,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(10,102,194,0.12) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(0,153,255,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(0,153,255,0.16) 1px, transparent 1px);
   background-size: 10% 7.7%; animation: dv-fade 800ms ease-out both; }
 .dv-print { position: absolute; right: 7%; top: 5%; width: 30%; opacity: 0.4; pointer-events: none; }
 .dv-print-arc { stroke-dasharray: 1; stroke-dashoffset: 0; animation: dv-draw 700ms ease-out both; }
-.dv-seal { position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; border-radius: 50%; background: #057642; display: grid; place-items: center;
-  box-shadow: 0 0 0 5px #FFFFFF, 0 10px 22px -8px rgba(5,118,66,0.5); animation: dv-pop 500ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
-.dv-seal-ring { position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; border-radius: 50%; border: 2px solid rgba(5,118,66,0.45);
+.dv-seal { position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; border-radius: 50%; background: #10b981; display: grid; place-items: center;
+  box-shadow: 0 0 0 5px #121212, 0 10px 22px -8px rgba(16,185,129,0.5); animation: dv-pop 500ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.dv-seal-ring { position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; border-radius: 50%; border: 2px solid rgba(16,185,129,0.45);
   opacity: 0; pointer-events: none; animation: dv-ring 1100ms ease-out both; }
 
 .dv-step-cap { display: flex; align-items: baseline; column-gap: 8px; }
-.dv-step-num { font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: #0A66C2; }
-.dv-step-label { font-size: 15px; font-weight: 600; color: #1D2226; }
+.dv-step-num { font-family: var(--font-mono), monospace; font-size: 12px; font-weight: 500; color: var(--brand); }
+.dv-step-label { font-size: 14.5px; font-weight: 500; color: var(--paper); }
 
 @keyframes dv-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes dv-float { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-5px) rotate(-0.35deg); } }
@@ -154,16 +159,6 @@ const PAGE_CSS = `
   .dv-login *, .dv-login *::before, .dv-login *::after { animation: none !important; transition: none !important; }
 }
 `;
-
-function BrandMark({ size = 36 }: { size?: number }) {
-  return (
-    <svg width={size} height={Math.round(size * 1.1)} viewBox="0 0 30 33" fill="none" aria-hidden="true">
-      <path d="M15 1.5 27 6v9.3c0 8.3-5.1 13.6-12 16.2C8.1 28.9 3 23.6 3 15.3V6L15 1.5Z" fill="#12306B" />
-      <path d="M15 1.5 27 6v9.3c0 8.3-5.1 13.6-12 16.2V1.5Z" fill="#0A66C2" />
-      <path d="m10.2 15.6 3.3 3.3 6.4-6.8" stroke="#FFFFFF" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 export default function LoginPage() {
   const { login, session } = useAuth();
@@ -196,17 +191,18 @@ export default function LoginPage() {
   const canSubmit = serviceNumber.trim().length > 0 && pin.length > 0 && !submitting;
 
   return (
-    <main className={`dv-login ${inter.variable} ${manrope.variable} ${inter.className}`}>
+    <main className={`dv-login ${fontClass}`}>
       <style>{PAGE_CSS}</style>
 
       <div className="dv-shell">
         <header className="dv-header">
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <BrandMark />
-            <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 25, letterSpacing: -0.5, color: "#1D2226" }}>
-              DigiVault
-            </span>
-          </div>
+          <Link href="/" className="dv-home">
+            <BrandMark size={24} />
+            DigiVault
+          </Link>
+          <Link href="/" className="dv-back">
+            ← Back to home
+          </Link>
         </header>
 
         <div className="dv-grid">
@@ -225,10 +221,10 @@ export default function LoginPage() {
 
           <section className="dv-card" aria-labelledby="dv-signin">
             <div className="dv-card-panel">
-              <h2 id="dv-signin" style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
+              <h2 id="dv-signin" style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 500, letterSpacing: -0.6 }}>
                 Sign in
               </h2>
-              <p style={{ margin: "8px 0 0", fontSize: 15, lineHeight: 1.5, color: "#5E5E5E" }}>Use your service number and PIN.</p>
+              <p style={{ margin: "8px 0 0", fontSize: 15, lineHeight: 1.5, color: "var(--paper-3)" }}>Use your service number and PIN.</p>
 
               <form onSubmit={handleSubmit} style={{ marginTop: 26 }} aria-busy={submitting}>
                 <div className="dv-field">

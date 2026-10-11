@@ -39,7 +39,7 @@ function Fingerprint() {
           className="dv-print-arc"
           style={{ animationDelay: `${T.print + i * 90}ms` }}
           d={`M${30 - r * 0.55} ${30 + r * 1.0} A ${r} ${r * 1.2} 0 1 1 ${30 + r * 0.55} ${30 + r * 1.0}`}
-          stroke="#0A66C2"
+          stroke="#0099ff"
           strokeWidth="1.3"
           strokeLinecap="round"
           pathLength={1}
@@ -107,10 +107,10 @@ function Connector({ drawDelay, flowDelay }: { drawDelay: number; flowDelay: num
   const d = "M6 22 C 22 6, 42 38, 62 18";
   return (
     <svg className="dv-connector" width="68" height="40" viewBox="0 0 68 40" fill="none">
-      <path className="dv-connector-path" style={{ animationDelay: `${drawDelay}ms` }} d={d} stroke="#AFC0D0" strokeWidth="1.4" strokeLinecap="round" pathLength={1} />
-      <path className="dv-connector-flow" style={{ animationDelay: `${flowDelay}ms` }} d={d} stroke="#0A66C2" strokeWidth="2" strokeLinecap="round" pathLength={1} />
-      <circle className="dv-node" style={{ animationDelay: `${drawDelay}ms` }} cx="6" cy="22" r="2.6" fill="#FFFFFF" stroke="#8FA7BD" strokeWidth="1.3" />
-      <circle className="dv-node" style={{ animationDelay: `${drawDelay + 550}ms` }} cx="62" cy="18" r="2.6" fill="#FFFFFF" stroke="#8FA7BD" strokeWidth="1.3" />
+      <path className="dv-connector-path" style={{ animationDelay: `${drawDelay}ms` }} d={d} stroke="rgba(255,255,255,0.2)" strokeWidth="1.4" strokeLinecap="round" pathLength={1} />
+      <path className="dv-connector-flow" style={{ animationDelay: `${flowDelay}ms` }} d={d} stroke="#0099ff" strokeWidth="2" strokeLinecap="round" pathLength={1} />
+      <circle className="dv-node" style={{ animationDelay: `${drawDelay}ms` }} cx="6" cy="22" r="2.6" fill="#171717" stroke="rgba(242,239,233,0.45)" strokeWidth="1.3" />
+      <circle className="dv-node" style={{ animationDelay: `${drawDelay + 550}ms` }} cx="62" cy="18" r="2.6" fill="#171717" stroke="rgba(242,239,233,0.45)" strokeWidth="1.3" />
     </svg>
   );
 }
@@ -127,11 +127,11 @@ export function EvidenceStory() {
       <div className="dv-story-texture" />
       <div className="dv-story-bloom" />
       <svg className="dv-orbits" viewBox="0 0 800 340" preserveAspectRatio="none" fill="none">
-        <ellipse cx="470" cy="190" rx="380" ry="118" stroke="#0A66C2" strokeOpacity="0.09" vectorEffect="non-scaling-stroke" transform="rotate(-6 470 190)" />
-        <ellipse cx="520" cy="175" rx="250" ry="82" stroke="#0A66C2" strokeOpacity="0.07" vectorEffect="non-scaling-stroke" transform="rotate(-6 520 175)" />
-        <circle cx="128" cy="236" r="2.2" fill="#0A66C2" fillOpacity="0.28" />
-        <circle cx="742" cy="118" r="1.8" fill="#0A66C2" fillOpacity="0.22" />
-        <circle cx="330" cy="96" r="1.6" fill="#0A66C2" fillOpacity="0.18" />
+        <ellipse cx="470" cy="190" rx="380" ry="118" stroke="#0099ff" strokeOpacity="0.09" vectorEffect="non-scaling-stroke" transform="rotate(-6 470 190)" />
+        <ellipse cx="520" cy="175" rx="250" ry="82" stroke="#0099ff" strokeOpacity="0.07" vectorEffect="non-scaling-stroke" transform="rotate(-6 520 175)" />
+        <circle cx="128" cy="236" r="2.2" fill="#0099ff" fillOpacity="0.28" />
+        <circle cx="742" cy="118" r="1.8" fill="#0099ff" fillOpacity="0.22" />
+        <circle cx="330" cy="96" r="1.6" fill="#0099ff" fillOpacity="0.18" />
       </svg>
 
       <div className="dv-story-track">

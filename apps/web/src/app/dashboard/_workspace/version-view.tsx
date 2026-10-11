@@ -70,38 +70,38 @@ const VERSION_CSS = `
 .wsv-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; margin-top: 24px; align-items: start; }
 .wsv-side { display: grid; gap: 16px; position: sticky; top: 92px; }
 @media (max-width: 1100px) { .wsv-grid { grid-template-columns: minmax(0, 1fr); } .wsv-side { position: static; } }
-.wsv-viewer { background: #EEF3F8; border: 1px solid #E3E8ED; border-radius: 14px; padding: 24px; display: grid; gap: 24px; justify-items: center; }
-.wsv-page { position: relative; width: 100%; max-width: 760px; background: #FFFFFF; box-shadow: 0 1px 3px rgba(29,34,38,0.08), 0 12px 30px -18px rgba(29,34,38,0.3); border-radius: 4px; overflow: hidden; }
+.wsv-viewer { background: var(--ink-3); border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: grid; gap: 24px; justify-items: center; }
+.wsv-page { position: relative; width: 100%; max-width: 760px; background: #FFFFFF; box-shadow: 0 30px 80px -30px rgba(0,0,0,0.8); border-radius: 4px; overflow: hidden; }
 .wsv-page img { display: block; width: 100%; height: auto; }
-.wsv-page-label { font-size: 12.5px; color: #5E5E5E; margin-top: -14px; }
-.wsv-page-skeleton { width: 100%; max-width: 760px; aspect-ratio: 0.707; background: #FFFFFF; border-radius: 4px; display: grid; place-items: center; color: #8A939B; font-size: 14px; }
-.wsv-page-missing { color: #A30D12; background: #FFFFFF; border: 1px dashed #F4C7C8; padding: 24px; text-align: center; }
-.wsv-tile { position: absolute; border: 2px solid #B36B00; background: rgba(179,107,0,0.12); border-radius: 2px; padding: 0; cursor: pointer; }
-.wsv-tile:hover { background: rgba(179,107,0,0.22); }
-.wsv-tile:focus-visible { outline: 2px solid #0A66C2; outline-offset: 1px; }
-.wsv-tile-selected { border-color: #0A66C2; background: rgba(29,34,38,0.72); }
-.wsv-tile-selected:hover { background: rgba(29,34,38,0.8); }
+.wsv-page-label { font-size: 12.5px; color: var(--paper-3); margin-top: -14px; }
+.wsv-page-skeleton { width: 100%; max-width: 760px; aspect-ratio: 0.707; background: var(--ink-4); border-radius: 4px; display: grid; place-items: center; color: var(--paper-4); font-size: 14px; }
+.wsv-page-missing { color: var(--danger); background: var(--ink-2); border: 1px dashed var(--danger-line); padding: 24px; text-align: center; }
+.wsv-tile { position: absolute; border: 2px solid var(--warn); background: rgba(251,191,36,0.14); border-radius: 2px; padding: 0; cursor: pointer; }
+.wsv-tile:hover { background: rgba(251,191,36,0.26); }
+.wsv-tile:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.wsv-tile-selected { border-color: var(--brand); background: rgba(0,0,0,0.8); }
+.wsv-tile-selected:hover { background: rgba(0,0,0,0.88); }
 .wsv-tile-static { cursor: default; }
-.wsv-status { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid #EEF1F4; }
+.wsv-status { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
 .wsv-status:first-of-type { border-top: 0; }
 .wsv-status-icon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; }
 .wsv-status-title { font-size: 14.5px; font-weight: 600; }
-.wsv-status-text { font-size: 13.5px; color: #5E5E5E; margin-top: 2px; }
-.wsv-details { margin-top: 8px; border-top: 1px solid #EEF1F4; padding-top: 12px; }
-.wsv-details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: #0A66C2; list-style-position: inside; }
-.wsv-details summary:focus-visible { outline: 2px solid #0A66C2; outline-offset: 2px; border-radius: 2px; }
+.wsv-status-text { font-size: 13.5px; color: var(--paper-3); margin-top: 2px; }
+.wsv-details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.wsv-details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--brand); list-style-position: inside; }
+.wsv-details summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
 .wsv-hash { display: grid; gap: 3px; margin-top: 12px; }
-.wsv-hash-label { font-size: 12.5px; color: #5E5E5E; }
-.wsv-hash-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #1D2226; overflow-wrap: anywhere; background: #F6F8FA; border: 1px solid #EEF1F4; border-radius: 6px; padding: 6px 8px; }
+.wsv-hash-label { font-size: 12.5px; color: var(--paper-3); }
+.wsv-hash-value { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--paper); overflow-wrap: anywhere; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 .wsv-sugg-list { list-style: none; margin: 8px 0 0; padding: 0; }
-.wsv-sugg { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid #EEF1F4; }
-.wsv-sugg input { width: 18px; height: 18px; margin-top: 2px; accent-color: #0A66C2; flex: none; }
-.wsv-sugg label { display: grid; gap: 3px; font-size: 13.5px; color: #5E5E5E; cursor: pointer; }
-.wsv-sugg-type { font-size: 14.5px; font-weight: 600; color: #1D2226; }
-.wsv-sugg-count { margin-left: 6px; font-size: 12.5px; font-weight: 600; color: #8A5300; background: #FFF6E8; border: 1px solid #F5D7A6; border-radius: 999px; padding: 1px 8px; }
+.wsv-sugg { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
+.wsv-sugg input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--brand); flex: none; }
+.wsv-sugg label { display: grid; gap: 3px; font-size: 13.5px; color: var(--paper-3); cursor: pointer; }
+.wsv-sugg-type { font-size: 14.5px; font-weight: 600; color: var(--paper); }
+.wsv-sugg-count { margin-left: 6px; font-size: 12.5px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; padding: 1px 8px; }
 .wsv-actions { display: grid; gap: 10px; margin-top: 14px; }
-.wsv-confirm { margin-top: 14px; padding: 14px; border-radius: 10px; background: #FDF1F1; border: 1px solid #F4C7C8; }
-.wsv-confirm p { margin: 0 0 12px; font-size: 14px; color: #1D2226; line-height: 1.5; }
+.wsv-confirm { margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--danger-soft); border: 1px solid var(--danger-line); }
+.wsv-confirm p { margin: 0 0 12px; font-size: 14px; color: var(--paper); line-height: 1.5; }
 `;
 
 function humanEntity(entity: string): string {
@@ -409,7 +409,7 @@ export function WorkspaceVersionView() {
                 <h2 id="wsv-integrity" className="ws-panel-title">Integrity</h2>
                 <div style={{ marginTop: 8 }}>
                   <div className="wsv-status">
-                    <span className="wsv-status-icon" style={{ background: "#EAF2FB", color: "#0A66C2" }}><Icon name="fingerprint" size={20} /></span>
+                    <span className="wsv-status-icon" style={{ background: "var(--brand-soft)", color: "var(--brand)" }}><Icon name="fingerprint" size={20} /></span>
                     <div>
                       <div className="wsv-status-title">Fingerprint recorded</div>
                       <div className="wsv-status-text">The server computed this version&apos;s fingerprint from its page images when the version was created.</div>
@@ -419,10 +419,10 @@ export function WorkspaceVersionView() {
                     <span
                       className="wsv-status-icon"
                       style={
-                        anchored ? { background: "#EAF6EF", color: "#057642" }
-                        : aState === "failed" || aState === "stalled" ? { background: "#FDF1F1", color: "#CC1016" }
-                        : aState === "pending" ? { background: "#EAF2FB", color: "#0A66C2" }
-                        : { background: "#F3F5F7", color: "#5E5E5E" }
+                        anchored ? { background: "var(--ok-soft)", color: "var(--ok)" }
+                        : aState === "failed" || aState === "stalled" ? { background: "var(--danger-soft)", color: "var(--danger)" }
+                        : aState === "pending" ? { background: "var(--brand-soft)", color: "var(--brand)" }
+                        : { background: "var(--ink-4)", color: "var(--paper-3)" }
                       }
                     >
                       <Icon name="anchor" size={20} />
@@ -435,7 +435,7 @@ export function WorkspaceVersionView() {
                         {anchored && info.anchor ? (
                           <>
                             {formatDateTime(info.anchor.anchored_at)} ·{" "}
-                            <a href={`https://amoy.polygonscan.com/tx/${info.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: "#0A66C2" }}>
+                            <a href={`https://amoy.polygonscan.com/tx/${info.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: "var(--brand)" }}>
                               View transaction
                             </a>
                           </>
@@ -559,7 +559,7 @@ export function WorkspaceVersionView() {
                         <Icon name="download" size={18} /> Download verification bundle
                       </button>
                       <p className="ws-row-note" style={{ margin: "-4px 0 0" }}>
-                        The proof file and page images. Anyone can check them at <Link href="/verify" style={{ color: "#0A66C2" }}>/verify</Link> without an account.
+                        The proof file and page images. Anyone can check them at <Link href="/verify" style={{ color: "var(--brand)" }}>/verify</Link> without an account.
                       </p>
                     </>
                   ) : (

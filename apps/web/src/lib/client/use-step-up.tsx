@@ -49,10 +49,10 @@ const PALETTES = {
     error: "#ef4444", primary: "#3b82f6", primaryDisabled: "#1f2937", primaryText: "#f9fafb", primaryDisabledText: "#f9fafb", link: "#60a5fa",
   },
   light: {
-    overlay: "rgba(29,34,38,0.45)", cardBg: "#FFFFFF",
-    cardBorder: "1px solid #E3E8ED", cardShadow: "0 24px 60px -20px rgba(29,34,38,0.35)",
-    text: "#1D2226", eyebrow: "#5E5E5E", muted: "#5E5E5E", body: "#1D2226", inputBg: "#FFFFFF", inputBorder: "1px solid #D0D7DE",
-    error: "#CC1016", primary: "#0A66C2", primaryDisabled: "#E3E8ED", primaryText: "#FFFFFF", primaryDisabledText: "#6B737A", link: "#0A66C2",
+    overlay: "rgba(0,0,0,0.66)", cardBg: "var(--ink-2)",
+    cardBorder: "1px solid var(--line-2)", cardShadow: "0 30px 80px -30px rgba(0,0,0,0.8)",
+    text: "var(--paper)", eyebrow: "var(--brand)", muted: "var(--paper-3)", body: "var(--paper-2)", inputBg: "var(--ink)", inputBorder: "1px solid var(--line-2)",
+    error: "var(--danger)", primary: "var(--paper)", primaryDisabled: "var(--ink-4)", primaryText: "var(--ink)", primaryDisabledText: "var(--paper-4)", link: "var(--brand)",
   },
 } as const;
 
@@ -168,7 +168,7 @@ export function useStepUp(options: { theme?: StepUpTheme } = {}) {
             maxWidth: 380,
             background: c.cardBg,
             border: c.cardBorder,
-            borderRadius: 8,
+            borderRadius: 16,
             padding: 26,
             boxShadow: c.cardShadow,
             color: c.text,
@@ -228,7 +228,7 @@ export function useStepUp(options: { theme?: StepUpTheme } = {}) {
                   color: c.text,
                   background: c.inputBg,
                   border: c.inputBorder,
-                  borderRadius: 4,
+                  borderRadius: 10,
                 }}
               />
               <button type="submit" disabled={busy || !pin} style={primaryButton(busy || !pin, c)}>
@@ -276,7 +276,7 @@ function primaryButton(disabled: boolean, c: (typeof PALETTES)[StepUpTheme]): Re
     color: disabled ? c.primaryDisabledText : c.primaryText,
     background: disabled ? c.primaryDisabled : c.primary,
     border: `1px solid ${disabled ? c.primaryDisabled : c.primary}`,
-    borderRadius: 6,
+    borderRadius: 999,
     cursor: disabled ? "not-allowed" : "pointer",
   };
 }

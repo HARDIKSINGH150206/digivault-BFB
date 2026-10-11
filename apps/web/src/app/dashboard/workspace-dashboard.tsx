@@ -61,12 +61,12 @@ export function WorkspaceDashboard() {
   const activity = useMemo(() => buildActivity(cases, evidence), [cases, evidence]);
 
   const cards = [
-    { icon: "folder" as const, tone: { bg: "#EAF2FB", fg: "#0A66C2" }, value: cases.length, label: "Total Cases" },
-    { icon: "clock" as const, tone: { bg: "#E6F4EC", fg: "#057642" }, value: openCases, label: "Open Cases" },
-    { icon: "file" as const, tone: { bg: "#EEF1FA", fg: "#3B5BA9" }, value: evidence.length, label: "Evidence Files" },
+    { icon: "folder" as const, tone: { bg: "var(--brand-soft)", fg: "var(--brand)" }, value: cases.length, label: "Total Cases" },
+    { icon: "clock" as const, tone: { bg: "var(--ok-soft)", fg: "var(--ok)" }, value: openCases, label: "Open Cases" },
+    { icon: "file" as const, tone: { bg: "rgba(255,255,255,0.04)", fg: "var(--paper-2)" }, value: evidence.length, label: "Evidence Files" },
     canViewSuggestions
-      ? { icon: "review" as const, tone: { bg: "#FFF3E3", fg: "#B36B00" }, value: needsReview.length, label: "Review Required" }
-      : { icon: "anchor" as const, tone: { bg: "#F0EDFA", fg: "#5B3FB5" }, value: anchored.length, label: "Anchored Evidence" },
+      ? { icon: "review" as const, tone: { bg: "var(--warn-soft)", fg: "var(--warn)" }, value: needsReview.length, label: "Review Required" }
+      : { icon: "anchor" as const, tone: { bg: "var(--ok-soft)", fg: "var(--ok)" }, value: anchored.length, label: "Anchored Evidence" },
   ];
 
   const leftItems = canViewSuggestions ? needsReview : evidence;

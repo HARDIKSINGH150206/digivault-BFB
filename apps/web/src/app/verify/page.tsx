@@ -3,9 +3,10 @@
 import "@/lib/client/buffer-polyfill";
 
 import { useState } from "react";
+import Link from "next/link";
 import { JsonRpcProvider, Contract, keccak256, toUtf8Bytes } from "ethers";
 import { hashTiles, buildMerkleTree, type TileHash } from "@digivault/crypto-core";
-import { manrope, inter } from "@/lib/client/fonts";
+import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../dashboard/_workspace/shell";
 
 /**
@@ -67,48 +68,52 @@ function shortHash(value: string): string {
 }
 
 const VERIFY_CSS = `
-.vf { min-height: 100vh; background: #F6F8FA; color: #1D2226; }
+.vf { min-height: 100vh; background: var(--ink); color: var(--paper); }
 .vf *, .vf *::before, .vf *::after { box-sizing: border-box; }
-.vf-header { height: 72px; display: flex; align-items: center; gap: 12px; padding: 0 28px; background: #FFFFFF; border-bottom: 1px solid #E3E8ED; }
-.vf-brand-name { font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: -0.4px; line-height: 1.1; }
-.vf-brand-sub { font-size: 12.5px; color: #5E5E5E; margin-top: 1px; }
-.vf-main { max-width: 680px; margin: 0 auto; padding: 40px 20px 56px; }
-.vf-eyebrow { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #5E5E5E; }
-.vf-title { margin: 0; font-family: var(--font-display); font-size: 32px; font-weight: 800; letter-spacing: -0.7px; line-height: 1.15; }
-.vf-lede { margin: 10px 0 0; font-size: 16px; line-height: 1.55; color: #5E5E5E; }
-.vf-card { margin-top: 26px; padding: 24px; background: #FFFFFF; border: 1px solid #E3E8ED; border-radius: 14px; box-shadow: 0 1px 2px rgba(29,34,38,0.04); display: grid; gap: 14px; }
-.vf-drop { display: flex; align-items: center; gap: 14px; padding: 18px; border: 1.5px dashed #C3CDD7; border-radius: 12px; background: #FBFCFD; cursor: pointer;
+.vf-header { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 28px; background: rgba(10,10,10,0.8); border-bottom: 1px solid var(--line); }
+.vf-home { display: inline-flex; align-items: center; gap: 12px; color: var(--paper); text-decoration: none; }
+.vf-home:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+.vf-header-link { margin-left: auto; font-size: 14px; color: var(--paper-3); text-decoration: none; }
+.vf-header-link:hover { color: var(--paper); }
+.vf-brand-name { font-family: var(--font-display); font-weight: 500; font-size: 20px; letter-spacing: -0.4px; line-height: 1.1; }
+.vf-brand-sub { font-size: 12.5px; color: var(--paper-3); margin-top: 1px; }
+.vf-main { max-width: 700px; margin: 0 auto; padding: 56px 20px 64px; }
+.vf-eyebrow { margin: 0 0 10px; font-size: 14px; font-weight: 500; color: var(--brand); }
+.vf-title { margin: 0; font-family: var(--font-display); font-size: clamp(32px, 5vw, 44px); font-weight: 500; letter-spacing: -1.4px; line-height: 1.08; }
+.vf-lede { margin: 10px 0 0; font-size: 16px; line-height: 1.55; color: var(--paper-3); }
+.vf-card { margin-top: 30px; padding: 22px; background: var(--ink-2); border: 0; border-radius: 20px; box-shadow: var(--shadow-card); display: grid; gap: 14px; }
+.vf-drop { display: flex; align-items: center; gap: 14px; padding: 18px; border: 1.5px dashed var(--line-3); border-radius: 14px; background: var(--ink); cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease; }
-.vf-drop:hover { border-color: #0A66C2; background: #F4F8FC; }
-.vf-drop:focus-within { outline: 2px solid #0A66C2; outline-offset: 2px; }
-.vf-drop-icon { width: 44px; height: 44px; border-radius: 10px; background: #EAF2FB; color: #0A66C2; display: grid; place-items: center; flex: none; }
-.vf-drop-label { display: block; font-size: 15px; font-weight: 600; color: #1D2226; }
-.vf-drop-detail { display: block; margin-top: 2px; font-size: 13.5px; color: #5E5E5E; }
-.vf-drop-files { display: block; margin-top: 6px; font-size: 12.5px; color: #0A66C2; overflow-wrap: anywhere; }
-.vf-drop-empty { display: block; margin-top: 6px; font-size: 12.5px; color: #8A939B; }
-.vf-advanced { justify-self: start; background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px; font-weight: 600; color: #0A66C2; cursor: pointer; }
-.vf-advanced:focus-visible { outline: 2px solid #0A66C2; outline-offset: 2px; border-radius: 2px; }
-.vf-input { display: block; width: 100%; margin-top: 6px; height: 42px; padding: 0 12px; border: 1px solid #D0D7DE; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #1D2226; background: #FFFFFF; }
-.vf-input:focus-visible { outline: none; border-color: #0A66C2; box-shadow: 0 0 0 3px rgba(10,102,194,0.2); }
-.vf-primary { height: 48px; border: 0; border-radius: 10px; background: #0A66C2; color: #FFFFFF; font: inherit; font-size: 15.5px; font-weight: 600; cursor: pointer; transition: background-color 120ms ease; }
-.vf-primary:hover:not(:disabled) { background: #004182; }
-.vf-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px #FFFFFF, 0 0 0 5px #0A66C2; }
-.vf-primary:disabled { background: #E3E8ED; color: #6B737A; cursor: not-allowed; }
-.vf-result { margin-top: 20px; padding: 20px; border-radius: 14px; border: 1px solid; animation: vf-in 180ms ease-out; }
+.vf-drop:hover { border-color: var(--brand); background: var(--brand-soft); }
+.vf-drop:focus-within { outline: 2px solid var(--brand); outline-offset: 2px; }
+.vf-drop-icon { width: 44px; height: 44px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; flex: none; }
+.vf-drop-label { display: block; font-size: 15px; font-weight: 600; color: var(--paper); }
+.vf-drop-detail { display: block; margin-top: 2px; font-size: 13.5px; color: var(--paper-3); }
+.vf-drop-files { display: block; margin-top: 6px; font-size: 12.5px; color: var(--brand); overflow-wrap: anywhere; }
+.vf-drop-empty { display: block; margin-top: 6px; font-size: 12.5px; color: var(--paper-4); }
+.vf-advanced { justify-self: start; background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--brand); cursor: pointer; }
+.vf-advanced:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.vf-input { display: block; width: 100%; margin-top: 6px; height: 42px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 10px; font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--paper); background: var(--ink); }
+.vf-input:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.vf-primary { height: 46px; border: 0; border-radius: 999px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-lift); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; transition: background-color 120ms ease; }
+.vf-primary:hover:not(:disabled) { background: #ffffff; }
+.vf-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ink-2), 0 0 0 4px var(--brand); }
+.vf-primary:disabled { background: var(--ink-4); color: var(--paper-4); box-shadow: none; cursor: not-allowed; }
+.vf-result { margin-top: 20px; padding: 20px; border-radius: 18px; border: 1px solid; animation: vf-in 180ms ease-out; }
 .vf-result-row { display: flex; gap: 14px; align-items: center; }
-.vf-result h2 { margin: 0; font-size: 19px; font-weight: 700; }
+.vf-result h2 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.3px; }
 .vf-result p { margin: 4px 0 0; font-size: 14px; }
-.vf-ok { background: #EAF6EF; border-color: #B7DEC7; }
-.vf-ok h2 { color: #05542F; }
-.vf-bad { background: #FDF1F1; border-color: #F4C7C8; }
-.vf-bad h2 { color: #A30D12; }
-.vf-checking { background: #FFFFFF; border-color: #E3E8ED; }
-.vf-untrusted { border-width: 2px; border-color: #CC1016; }
-.vf-official { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid #B7DEC7; background: #FFFFFF; color: #057642; font-size: 12.5px; font-weight: 600; }
-.vf-facts { margin-top: 14px; display: grid; gap: 6px; font-size: 13.5px; color: #1D2226; }
-.vf-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #0A66C2; }
-.vf-detail { margin: 12px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: #5E5E5E; overflow-wrap: anywhere; }
-.vf-spinner { width: 20px; height: 20px; border-radius: 50%; border: 3px solid #E3E8ED; border-top-color: #0A66C2; animation: vf-spin 900ms linear infinite; flex: none; }
+.vf-ok { background: var(--ok-soft); border-color: var(--ok-line); }
+.vf-ok h2 { color: var(--ok); }
+.vf-bad { background: var(--danger-soft); border-color: var(--danger-line); }
+.vf-bad h2 { color: var(--danger); }
+.vf-checking { background: var(--ink-2); border-color: var(--line); }
+.vf-untrusted { border-width: 2px; border-color: var(--danger); background: #1a0b0b; }
+.vf-official { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--ok-line); background: var(--ok-soft); color: var(--ok); font-size: 12.5px; font-weight: 500; }
+.vf-facts { margin-top: 14px; display: grid; gap: 6px; font-size: 13.5px; color: var(--paper); }
+.vf-code { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--brand); }
+.vf-detail { margin: 12px 0 0; font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--paper-3); overflow-wrap: anywhere; }
+.vf-spinner { width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--brand); animation: vf-spin 900ms linear infinite; flex: none; }
 @keyframes vf-spin { to { transform: rotate(360deg); } }
 @keyframes vf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .vf-result, .vf-spinner { animation: none; } }
@@ -265,14 +270,19 @@ export default function VerifyPage() {
   const canVerify = Boolean(proofFile && pngFiles.length > 0 && result.outcome !== "checking");
 
   return (
-    <div className={`vf ${inter.variable} ${manrope.variable} ${inter.className}`}>
+    <div className={`vf ${fontClass}`}>
       <style>{VERIFY_CSS}</style>
       <header className="vf-header">
-        <BrandMark />
-        <div>
-          <div className="vf-brand-name">DigiVault</div>
-          <div className="vf-brand-sub">Public verification</div>
-        </div>
+        <Link href="/" className="vf-home">
+          <BrandMark size={26} />
+          <div>
+            <div className="vf-brand-name">DigiVault</div>
+            <div className="vf-brand-sub">Public verification</div>
+          </div>
+        </Link>
+        <Link href="/" className="vf-header-link">
+          About DigiVault
+        </Link>
       </header>
 
       <main className="vf-main">
@@ -301,7 +311,7 @@ export default function VerifyPage() {
             {showAdvanced ? "Hide" : "Show"} advanced options
           </button>
           {showAdvanced && (
-            <label style={{ fontSize: 13.5, fontWeight: 600, color: "#1D2226" }}>
+            <label style={{ fontSize: 13.5, fontWeight: 600, color: "var(--paper)" }}>
               Polygon RPC endpoint
               <input className="vf-input" value={rpcUrl} onChange={(e) => setRpcUrl(e.target.value)} />
             </label>
@@ -325,12 +335,12 @@ export default function VerifyPage() {
           <div className="result-card vf-result vf-ok" role="status">
             <div className="vf-result-row">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" fill="#057642" />
+                <circle cx="12" cy="12" r="10" fill="#10b981" />
                 <path d="m7 12 3 3 7-7" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               <div>
                 <h2>Verified - matches public blockchain record</h2>
-                <p style={{ color: "#1D2226" }}>The supplied document pages match the public Polygon Amoy anchor.</p>
+                <p style={{ color: "var(--paper)" }}>The supplied document pages match the public Polygon Amoy anchor.</p>
               </div>
             </div>
             <div className="vf-facts">
@@ -360,13 +370,13 @@ export default function VerifyPage() {
           <div className="result-card vf-result vf-bad vf-untrusted" role="alert">
             <div className="vf-result-row">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 2.5 1.8 20.5h20.4L12 2.5Z" fill="#CC1016" />
+                <path d="M12 2.5 1.8 20.5h20.4L12 2.5Z" fill="#dc2626" />
                 <path d="M12 9.5v5" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" />
                 <circle cx="12" cy="17.3" r="1.2" fill="#FFFFFF" />
               </svg>
               <div>
                 <h2>{result.reason}</h2>
-                <p style={{ color: "#1D2226" }}>This proof was not checked against the official DigiVault record. Treat the document as unverified.</p>
+                <p style={{ color: "var(--paper)" }}>This proof was not checked against the official DigiVault record. Treat the document as unverified.</p>
               </div>
             </div>
             {result.detail && <p className="vf-detail">{result.detail}</p>}
@@ -377,12 +387,12 @@ export default function VerifyPage() {
           <div className="result-card vf-result vf-bad" role="alert">
             <div className="vf-result-row">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" fill="#CC1016" />
+                <circle cx="12" cy="12" r="10" fill="#dc2626" />
                 <path d="m8 8 8 8M16 8l-8 8" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" />
               </svg>
               <div>
                 <h2>Mismatch - do not trust this document</h2>
-                <p style={{ color: "#1D2226" }}>{result.reason}</p>
+                <p style={{ color: "var(--paper)" }}>{result.reason}</p>
               </div>
             </div>
             {result.detail && <p className="vf-detail">{result.detail}</p>}

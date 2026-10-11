@@ -33,39 +33,39 @@ const IO_CSS = `
 @media (max-width: 1180px) { .io-grid-top, .io-grid-bottom { grid-template-columns: minmax(0, 1fr); } }
 
 .io-cases { width: 100%; border-collapse: collapse; font-size: 14px; margin: 4px 0 8px; }
-.io-cases th { text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5E5E; background: #F6F8FA; padding: 10px 10px; }
+.io-cases th { text-align: left; font-size: 12px; font-weight: 500; color: var(--paper-3); background: rgba(255,255,255,0.03); padding: 10px 10px; }
 .io-cases th:first-child { border-radius: 8px 0 0 8px; }
 .io-cases th:last-child { border-radius: 0 8px 8px 0; }
-.io-cases td { padding: 12px 10px; border-bottom: 1px solid #EEF1F4; vertical-align: middle; }
+.io-cases td { padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .io-cases tbody tr { cursor: pointer; transition: background-color 120ms ease; }
-.io-cases tbody tr:hover { background: #F7FAFD; }
+.io-cases tbody tr:hover { background: rgba(255,255,255,0.03); }
 .io-cases tbody tr:last-child td { border-bottom: 0; }
 .io-cases td.io-when, .io-cases td:first-child { white-space: nowrap; }
-.io-sub { font-size: 12.5px; color: #5E5E5E; margin-top: 2px; }
+.io-sub { font-size: 12.5px; color: var(--paper-3); margin-top: 2px; }
 .io-cases-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
-.io-cases a { color: #0A66C2; font-weight: 600; text-decoration: none; }
+.io-cases a { color: var(--brand); font-weight: 600; text-decoration: none; }
 .io-cases a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.io-cases a:focus-visible { outline: 2px solid #0A66C2; outline-offset: 2px; border-radius: 2px; }
+.io-cases a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
 
 .io-tl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.io-select { height: 40px; min-width: 180px; border: 1px solid #D0D7DE; border-radius: 8px; padding: 0 12px; font: inherit; font-size: 14px; color: #1D2226; background: #FFFFFF; }
-.io-select:focus-visible { outline: none; border-color: #0A66C2; box-shadow: 0 0 0 3px rgba(10,102,194,0.2); }
+.io-select { height: 40px; min-width: 180px; border: 1px solid var(--line-2); border-radius: 8px; padding: 0 12px; font: inherit; font-size: 14px; color: var(--paper); background: var(--ink); }
+.io-select:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 .io-tl { list-style: none; margin: 0 0 12px; padding: 0; position: relative; }
 .io-tl-item { position: relative; display: grid; grid-template-columns: 16px 30px minmax(0, 1fr); column-gap: 12px; padding: 10px 0; }
 .io-tl-rail { position: relative; display: flex; justify-content: center; }
-.io-tl-rail span.io-tl-line { position: absolute; top: 18px; bottom: -22px; width: 2px; background: #E3E8ED; }
+.io-tl-rail span.io-tl-line { position: absolute; top: 18px; bottom: -22px; width: 2px; background: var(--line); }
 .io-tl-item:last-child .io-tl-line { display: none; }
 .io-tl-dot { position: relative; z-index: 1; width: 10px; height: 10px; margin-top: 7px; border-radius: 50%; }
 .io-tl-icon { display: flex; justify-content: center; padding-top: 1px; }
-.io-tl-when { font-size: 12.5px; color: #5E5E5E; }
-.io-tl-what { font-size: 14.5px; font-weight: 600; color: #1D2226; margin-top: 1px; }
-.io-tl-detail { font-size: 13.5px; color: #5E5E5E; margin-top: 1px; overflow-wrap: anywhere; }
-.io-tl-detail a { color: #0A66C2; text-decoration: none; font-weight: 600; }
+.io-tl-when { font-size: 12.5px; color: var(--paper-3); }
+.io-tl-what { font-size: 14.5px; font-weight: 600; color: var(--paper); margin-top: 1px; }
+.io-tl-detail { font-size: 13.5px; color: var(--paper-3); margin-top: 1px; overflow-wrap: anywhere; }
+.io-tl-detail a { color: var(--brand); text-decoration: none; font-weight: 600; }
 .io-tl-detail a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 @media (max-width: 860px) {
   .io-cases thead { display: none; }
-  .io-cases tr { display: grid; grid-template-columns: 1fr auto; row-gap: 4px; padding: 10px 0; border-bottom: 1px solid #EEF1F4; }
+  .io-cases tr { display: grid; grid-template-columns: 1fr auto; row-gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .io-cases td { border: 0; padding: 0; }
   .io-cases td.io-hide-sm { display: none; }
 }
@@ -131,10 +131,10 @@ export function InvestigationDashboard() {
   ];
 
   const cards = [
-    { icon: "folder" as const, tone: { bg: "#EAF2FB", fg: "#0A66C2" }, value: cases.filter((c) => c.status.toUpperCase() === "OPEN").length, label: "Open Cases" },
-    { icon: "clock" as const, tone: { bg: "#FFF3E3", fg: "#B36B00" }, value: casesNeedingReview.size, label: "Cases Needing Review" },
-    { icon: "file" as const, tone: { bg: "#EEF1FA", fg: "#3B5BA9" }, value: pendingReview.length, label: "Evidence Awaiting Review" },
-    { icon: "anchor" as const, tone: { bg: "#F0EDFA", fg: "#5B3FB5" }, value: notAnchored.length, label: "Awaiting Anchor" },
+    { icon: "folder" as const, tone: { bg: "var(--brand-soft)", fg: "var(--brand)" }, value: cases.filter((c) => c.status.toUpperCase() === "OPEN").length, label: "Open Cases" },
+    { icon: "clock" as const, tone: { bg: "var(--warn-soft)", fg: "var(--warn)" }, value: casesNeedingReview.size, label: "Cases Needing Review" },
+    { icon: "file" as const, tone: { bg: "rgba(255,255,255,0.04)", fg: "var(--paper-2)" }, value: pendingReview.length, label: "Evidence Awaiting Review" },
+    { icon: "anchor" as const, tone: { bg: "var(--ok-soft)", fg: "var(--ok)" }, value: notAnchored.length, label: "Awaiting Anchor" },
   ];
 
   const timelineCase = cases.find((c) => c.id === timelineCaseId) ?? null;
@@ -299,7 +299,7 @@ export function InvestigationDashboard() {
           ) : (
             <ol className="io-tl">
               {timeline.events.map((ev, i) => {
-                const color = ev.kind === "anchor" ? "#057642" : "#0A66C2";
+                const color = ev.kind === "anchor" ? "var(--ok)" : "var(--brand)";
                 return (
                   <li key={`${ev.kind}-${ev.at}-${i}`} className="io-tl-item">
                     <span className="io-tl-rail"><span className="io-tl-dot" style={{ background: color }} /><span className="io-tl-line" /></span>
@@ -316,8 +316,8 @@ export function InvestigationDashboard() {
               })}
               {timeline.waiting.map((e) => (
                 <li key={`now-${e.doc.id}`} className="io-tl-item">
-                  <span className="io-tl-rail"><span className="io-tl-dot" style={{ background: "#B36B00" }} /><span className="io-tl-line" /></span>
-                  <span className="io-tl-icon" style={{ color: "#B36B00" }}><Icon name="review" size={20} /></span>
+                  <span className="io-tl-rail"><span className="io-tl-dot" style={{ background: "var(--warn)" }} /><span className="io-tl-line" /></span>
+                  <span className="io-tl-icon" style={{ color: "var(--warn)" }}><Icon name="review" size={20} /></span>
                   <span>
                     <div className="io-tl-when">Now</div>
                     <div className="io-tl-what">Awaiting redaction review</div>
