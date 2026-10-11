@@ -40,7 +40,7 @@ The judges must *see* the trust story: hash, then anchor, then redact, then veri
 ## 2. Stack (already in place — do not change)
 
 - Next.js 14 App Router, React 18, TypeScript, inside the pnpm workspace (`@digivault/web`)
-- Styling: plain CSS strings in the existing design system (`WORKSPACE_CSS` in `dashboard/_workspace/shell.tsx`, `ws-*` classes), with fonts from `lib/client/fonts.ts` (Manrope for display, Inter for body). **Do not add Tailwind, a component library or a CSS-in-JS package.**
+- Styling: plain CSS strings using the design tokens in `lib/client/theme.ts` (loaded once in `app/layout.tsx`), the `ws-*` classes in `WORKSPACE_CSS` (`dashboard/_workspace/shell.tsx`), and fonts from `lib/client/fonts.ts` (Inter for everything, JetBrains Mono for hashes). **Do not add Tailwind, a component library or a CSS-in-JS package.**
 - Data: `apiJson` / `apiFetch` from `lib/client/api-client.ts`. Use plain `fetch` only on `/verify`, where it goes to the RPC and never to `/api`.
 - Auth: `AuthProvider`, `RequireAuth`, `auth-storage` (1-hour session) and `useStepUp()` for the three step-up actions
 - Crypto: `@digivault/crypto-core` (PDF.js → PNG → tiles → Merkle) and `pdfjs-dist`, with its worker set up in `pdf-worker-setup.ts`
@@ -193,7 +193,7 @@ Court Official and Forensic Lab get a read-focused dashboard: the documents they
 
 ## 7. Design direction
 
-- **Calm and official, like a court records office:** white and warm-grey surfaces, the existing blue accent (`#0A66C2`), large clear numbers and generous spacing. Reuse the `ws-*` tokens instead of creating new colours.
+- **Dark theme, modelled on the Aceternity "inference" landing page:** near-black surfaces (`--ink #0a0a0a`, cards `--ink-2 #171717`), warm off-white text (`--paper #f2efe9` with 72/55/38% opacity steps), hairline borders (`--line`, white at 6%), one blue accent (`--brand #0099ff`), and emerald, amber and red only for status. Primary buttons are light pills, secondary buttons are dark pills. Headings are Inter 500 with tight tracking. Always use the `var(--…)` tokens from `lib/client/theme.ts`, never new hex values. Page images of evidence stay on white.
 - **Show trust visually, honestly:** hashes in a monospace font, truncated as `3f9a…e21c` with a copy button. Show anchor states with a text label, the tile grid with clear masked and unmasked states, and confidence as a bar plus a whole percent.
 - **Never colour alone:** every chip, badge and checklist row has text.
 - **Accessibility:** tile grid cells are focusable buttons with `aria-pressed` and a label ("Page 1, row 3, column 8, suggested: victim name 93%"). Dialogs trap focus. Every interactive element gets visible `:focus-visible` styling.

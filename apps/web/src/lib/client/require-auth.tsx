@@ -14,7 +14,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (loading || !session) {
     return (
-      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#F6F8FA", color: "#5E5E5E", fontSize: 14 }} role="status">
+      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "rgba(255,255,255,0.03)", color: "var(--paper-3)", fontSize: 14 }} role="status">
         Loading…
       </div>
     );
