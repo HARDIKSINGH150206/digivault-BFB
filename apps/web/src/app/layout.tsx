@@ -1,5 +1,6 @@
 import type { Viewport } from "next";
 import { AuthProvider } from "@/lib/client/auth-context";
+import { THEME_CSS } from "@/lib/client/theme";
 
 // No viewport meta tag existed anywhere in the app before this. Without
 // one, some browsers (particularly mobile) render the page against a
@@ -10,12 +11,14 @@ import { AuthProvider } from "@/lib/client/auth-context";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: "system-ui, sans-serif", margin: 0, background: "#f7f7f5" }}>
+      <body>
+        <style>{THEME_CSS}</style>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

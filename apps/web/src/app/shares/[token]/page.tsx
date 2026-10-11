@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { resolveShareView } from "@/lib/shares-repo";
 import { clientIpFromHeaders } from "@/lib/request-ip";
-import { manrope, inter } from "@/lib/client/fonts";
+import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../../dashboard/_workspace/shell";
 
 function formatDate(date: Date): string {
@@ -23,42 +23,42 @@ const ERROR_MESSAGES: Record<string, { title: string; detail: string }> = {
 
 /* Same rule as the other pages: no quote, ampersand or angle-bracket characters inside this CSS. */
 const SHARE_CSS = `
-.sh { min-height: 100vh; display: flex; flex-direction: column; background: #F6F8FA; color: #1D2226; }
+.sh { min-height: 100vh; display: flex; flex-direction: column; background: var(--ink); color: var(--paper); }
 .sh *, .sh *::before, .sh *::after { box-sizing: border-box; }
-.sh-header { height: 68px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: #FFFFFF; border-bottom: 1px solid #E3E8ED; }
-.sh-brand { font-family: var(--font-display); font-weight: 800; font-size: 19px; letter-spacing: -0.3px; line-height: 1.1; }
-.sh-brand-sub { font-size: 12.5px; color: #5E5E5E; }
+.sh-header { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: rgba(10,10,10,0.8); border-bottom: 1px solid var(--line); }
+.sh-brand { font-family: var(--font-display); font-weight: 500; font-size: 19px; letter-spacing: -0.3px; line-height: 1.1; }
+.sh-brand-sub { font-size: 12.5px; color: var(--paper-3); }
 .sh-main { flex: 1; width: 100%; max-width: 680px; margin: 0 auto; padding: 36px 16px 48px; }
-.sh-notice { margin: 0 0 16px; padding: 11px 14px; border-radius: 10px; background: #EEF3F8; border: 1px solid #D8E3EE; font-size: 14px; }
-.sh-card { background: #FFFFFF; border: 1px solid #E3E8ED; border-radius: 14px; padding: 24px; box-shadow: 0 1px 2px rgba(29,34,38,0.04); }
-.sh-case { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: #0A66C2; }
-.sh-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.2; }
-.sh-meta { margin: 8px 0 0; font-size: 14.5px; color: #5E5E5E; }
-.sh-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; padding: 4px 11px; border-radius: 999px; font-size: 13px; font-weight: 600; border: 1px solid; }
-.sh-chip-ok { color: #057642; background: #EAF6EF; border-color: #B7DEC7; }
-.sh-chip-warn { color: #8A5300; background: #FFF6E8; border-color: #F5D7A6; }
-.sh-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 18px; row-gap: 10px; margin: 18px 0 0; padding-top: 16px; border-top: 1px solid #EEF1F4; font-size: 14px; }
-.sh-dl dt { color: #5E5E5E; }
+.sh-notice { margin: 0 0 16px; padding: 11px 14px; border-radius: 10px; background: var(--ink-2); border: 1px solid var(--line-2); font-size: 14px; }
+.sh-card { background: var(--ink-2); border: 0; border-radius: 20px; padding: 24px; box-shadow: var(--shadow-card); }
+.sh-case { margin: 0 0 6px; font-size: 13.5px; font-weight: 500; color: var(--brand); }
+.sh-title { margin: 0; font-family: var(--font-display); font-size: 28px; font-weight: 500; letter-spacing: -0.8px; line-height: 1.2; }
+.sh-meta { margin: 8px 0 0; font-size: 14.5px; color: var(--paper-3); }
+.sh-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; padding: 4px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 500; border: 1px solid; }
+.sh-chip-ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
+.sh-chip-warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+.sh-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 18px; row-gap: 10px; margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; }
+.sh-dl dt { color: var(--paper-3); }
 .sh-dl dd { margin: 0; overflow-wrap: anywhere; }
-.sh-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-.sh-dl a { color: #0A66C2; text-decoration: none; }
+.sh-code { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.sh-dl a { color: var(--brand); text-decoration: none; }
 .sh-dl a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.sh-primary { display: flex; align-items: center; justify-content: center; gap: 8px; height: 48px; margin-top: 18px; border-radius: 10px; background: #0A66C2; color: #FFFFFF;
-  font-size: 15.5px; font-weight: 600; text-decoration: none; }
-.sh-primary:hover { background: #004182; }
-.sh-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px #FFFFFF, 0 0 0 5px #0A66C2; }
-.sh-help { margin: 16px 0 0; font-size: 14px; color: #5E5E5E; line-height: 1.55; }
-.sh-help a { color: #0A66C2; font-weight: 600; text-decoration: none; }
+.sh-primary { display: flex; align-items: center; justify-content: center; gap: 8px; height: 46px; margin-top: 20px; border-radius: 999px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-lift);
+  font-size: 15px; font-weight: 500; text-decoration: none; }
+.sh-primary:hover { background: #ffffff; }
+.sh-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ink-2), 0 0 0 4px var(--brand); }
+.sh-help { margin: 16px 0 0; font-size: 14px; color: var(--paper-3); line-height: 1.55; }
+.sh-help a { color: var(--paper); font-weight: 500; text-decoration: none; }
 .sh-help a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .sh-error { text-align: center; padding: 36px 24px; }
-.sh-error-icon { width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; background: #FDF1F1; color: #CC1016; }
-.sh-footer { padding: 20px 16px 28px; text-align: center; font-size: 12.5px; color: #8A939B; }
+.sh-error-icon { width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; background: var(--danger-soft); color: var(--danger); }
+.sh-footer { padding: 20px 16px 28px; text-align: center; font-size: 12.5px; color: var(--paper-4); }
 @media (max-width: 560px) { .sh-dl { grid-template-columns: minmax(0, 1fr); row-gap: 2px; } .sh-dl dd { margin-bottom: 8px; } }
 `;
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`sh ${inter.variable} ${manrope.variable} ${inter.className}`}>
+    <div className={`sh ${fontClass}`}>
       <style>{SHARE_CSS}</style>
       <header className="sh-header">
         <BrandMark size={30} />
