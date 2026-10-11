@@ -21,6 +21,14 @@ export const THEME_CSS = `
   --line: rgba(255,255,255,0.06);
   --line-2: rgba(255,255,255,0.1);
   --line-3: rgba(255,255,255,0.16);
+  --dusk: #171717;
+  --sand: #c8b8a8;
+  --rust: #6e4a3a;
+  --canvas: #f7f6f3;
+  --wire-amber: #f0b24a;
+  --wire-orange: #ef7a45;
+  --wire-pink: #e8578f;
+  --wire-violet: #9b87f5;
   --brand: #0099ff;
   --brand-soft: rgba(0,153,255,0.14);
   --brand-line: rgba(0,153,255,0.35);
