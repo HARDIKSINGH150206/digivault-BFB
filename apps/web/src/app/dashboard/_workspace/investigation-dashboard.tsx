@@ -33,34 +33,31 @@ const IO_CSS = `
 @media (max-width: 1180px) { .io-grid-top, .io-grid-bottom { grid-template-columns: minmax(0, 1fr); } }
 
 .io-cases { width: 100%; border-collapse: collapse; font-size: 14px; margin: 4px 0 8px; }
-.io-cases th { text-align: left; font-size: 12px; font-weight: 500; color: var(--paper-3); background: rgba(255,255,255,0.03); padding: 10px 10px; }
-.io-cases th:first-child { border-radius: 8px 0 0 8px; }
-.io-cases th:last-child { border-radius: 0 8px 8px 0; }
+.io-cases th { text-align: left; font-size: 12px; font-weight: 500; color: var(--paper-4); padding: 0 10px 10px; border-bottom: 1px solid var(--line-2); }
 .io-cases td { padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .io-cases tbody tr { cursor: pointer; transition: background-color 120ms ease; }
-.io-cases tbody tr:hover { background: rgba(255,255,255,0.03); }
+.io-cases tbody tr:hover { background: var(--ink-3); }
 .io-cases tbody tr:last-child td { border-bottom: 0; }
 .io-cases td.io-when, .io-cases td:first-child { white-space: nowrap; }
-.io-sub { font-size: 12.5px; color: var(--paper-3); margin-top: 2px; }
+.io-sub { font-size: 12.5px; color: var(--paper-4); margin-top: 2px; }
 .io-cases-wrap { overflow-x: auto; margin: 0 -4px; padding: 0 4px; }
-.io-cases a { color: var(--brand); font-weight: 600; text-decoration: none; }
-.io-cases a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.io-cases a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.io-cases a { color: var(--paper); font-family: var(--font-mono), monospace; font-size: 13px; font-weight: 500; text-decoration: none; }
+.io-cases a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .io-tl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.io-select { height: 40px; min-width: 180px; border: 1px solid var(--line-2); border-radius: 8px; padding: 0 12px; font: inherit; font-size: 14px; color: var(--paper); background: var(--ink); }
-.io-select:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.io-select { height: 36px; min-width: 180px; border: 1px solid var(--line-2); border-radius: 8px; padding: 0 10px; font: inherit; font-size: 13px; color: var(--paper); background: var(--ink-3); }
+.io-select:focus-visible { outline: none; border-color: var(--paper-3); }
 .io-tl { list-style: none; margin: 0 0 12px; padding: 0; position: relative; }
 .io-tl-item { position: relative; display: grid; grid-template-columns: 16px 30px minmax(0, 1fr); column-gap: 12px; padding: 10px 0; }
 .io-tl-rail { position: relative; display: flex; justify-content: center; }
-.io-tl-rail span.io-tl-line { position: absolute; top: 18px; bottom: -22px; width: 2px; background: var(--line); }
+.io-tl-rail span.io-tl-line { position: absolute; top: 18px; bottom: -22px; width: 1px; background: var(--line-2); }
 .io-tl-item:last-child .io-tl-line { display: none; }
-.io-tl-dot { position: relative; z-index: 1; width: 10px; height: 10px; margin-top: 7px; border-radius: 50%; }
+.io-tl-dot { position: relative; z-index: 1; width: 8px; height: 8px; margin-top: 8px; border-radius: 50%; box-shadow: 0 0 0 3px var(--ink); }
 .io-tl-icon { display: flex; justify-content: center; padding-top: 1px; }
-.io-tl-when { font-size: 12.5px; color: var(--paper-3); }
-.io-tl-what { font-size: 14.5px; font-weight: 600; color: var(--paper); margin-top: 1px; }
+.io-tl-when { font-family: var(--font-mono), monospace; font-size: 11.5px; color: var(--paper-4); }
+.io-tl-what { font-size: 14px; font-weight: 500; color: var(--paper); margin-top: 1px; }
 .io-tl-detail { font-size: 13.5px; color: var(--paper-3); margin-top: 1px; overflow-wrap: anywhere; }
-.io-tl-detail a { color: var(--brand); text-decoration: none; font-weight: 600; }
+.io-tl-detail a { color: var(--paper); text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; font-weight: 500; }
 .io-tl-detail a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 @media (max-width: 860px) {
@@ -131,10 +128,10 @@ export function InvestigationDashboard() {
   ];
 
   const cards = [
-    { icon: "folder" as const, tone: { bg: "var(--brand-soft)", fg: "var(--brand)" }, value: cases.filter((c) => c.status.toUpperCase() === "OPEN").length, label: "Open Cases" },
-    { icon: "clock" as const, tone: { bg: "var(--warn-soft)", fg: "var(--warn)" }, value: casesNeedingReview.size, label: "Cases Needing Review" },
-    { icon: "file" as const, tone: { bg: "rgba(255,255,255,0.04)", fg: "var(--paper-2)" }, value: pendingReview.length, label: "Evidence Awaiting Review" },
-    { icon: "anchor" as const, tone: { bg: "var(--ok-soft)", fg: "var(--ok)" }, value: notAnchored.length, label: "Awaiting Anchor" },
+    { icon: "folder" as const, value: cases.filter((c) => c.status.toUpperCase() === "OPEN").length, label: "Open Cases" },
+    { icon: "clock" as const, value: casesNeedingReview.size, label: "Cases Needing Review" },
+    { icon: "file" as const, value: pendingReview.length, label: "Evidence Awaiting Review" },
+    { icon: "anchor" as const, value: notAnchored.length, label: "Awaiting Anchor" },
   ];
 
   const timelineCase = cases.find((c) => c.id === timelineCaseId) ?? null;
@@ -164,7 +161,7 @@ export function InvestigationDashboard() {
       <section className="ws-cards" aria-label="Summary" aria-busy={loading}>
         {cards.map((c) => (
           <div key={c.label} className="ws-card">
-            <span className="ws-card-icon" style={{ background: c.tone.bg, color: c.tone.fg }}>
+            <span className="ws-card-icon">
               <Icon name={c.icon} />
             </span>
             <div>
@@ -299,11 +296,11 @@ export function InvestigationDashboard() {
           ) : (
             <ol className="io-tl">
               {timeline.events.map((ev, i) => {
-                const color = ev.kind === "anchor" ? "var(--ok)" : "var(--brand)";
+                const color = ev.kind === "anchor" ? "var(--ok)" : "var(--paper-3)";
                 return (
                   <li key={`${ev.kind}-${ev.at}-${i}`} className="io-tl-item">
                     <span className="io-tl-rail"><span className="io-tl-dot" style={{ background: color }} /><span className="io-tl-line" /></span>
-                    <span className="io-tl-icon" style={{ color }}>
+                    <span className="io-tl-icon" style={{ color: ev.kind === "anchor" ? "var(--ok)" : "var(--paper-4)" }}>
                       <Icon name={ev.kind === "case" ? "folder" : ev.kind === "upload" ? "upload" : ev.kind === "version" ? "version" : "anchor"} size={20} />
                     </span>
                     <span>
