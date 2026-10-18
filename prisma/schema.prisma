@@ -117,6 +117,12 @@ model DocumentVersion {
   status       DocumentStatus @default(PROCESSING)
   isRedacted   Boolean        @default(false)
   timestamp    DateTime       @default(now())
+  // Proof format (ADR-021). 1 = legacy: unsalted leaves, merkletreejs,
+  // merkleRoot is the anchored value. 2 = salted leaves, RFC 6962 trees:
+  // merkleRoot holds the document root R and `commitment` holds
+  // C = H(0x03 ‖ clientHash ‖ R), the value anchored on-chain (docs/03 §v2).
+  proofVersion Int            @default(1)
+  commitment   String?
 
   anchors AnchorLog[]
   tiles   Tile[]

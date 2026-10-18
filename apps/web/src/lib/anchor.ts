@@ -2,6 +2,7 @@ import type { AnchorLog, DocumentVersion } from "@prisma/client";
 import { prisma } from "./prisma";
 import { putObjectLocked, putPublicProof } from "./storage";
 import { buildPublicProof } from "./public-proof";
+import { anchoredValue } from "./proof-v2";
 import { getEvidenceAnchorDeployment } from "./contract-address";
 import { getVersionPageIndices } from "./tiles-repo";
 import { anchorRootOnChain, getOnChainAnchor, getTxOutcome } from "./polygon";
@@ -44,10 +45,9 @@ async function publishPublicProofIfSalted(version: DocumentVersion, anchorLog: A
     await putPublicProof(
       version.id,
       buildPublicProof({
-        proofVersion: 2,
+        proofVersion: version.proofVersion,
         documentVersionId: version.id,
-        // Phase 1 replaces this with the commitment C = H(0x03 ‖ fileHash ‖ R).
-        commitment: version.merkleRoot,
+        commitment: anchoredValue(version),
         gridSize: version.gridSize,
         pageCount,
         isRedacted: version.isRedacted,
@@ -81,7 +81,7 @@ async function reconcileOnChainAnchor(
   }
   if (onChain.timestamp === 0) return null;
 
-  if (onChain.merkleRoot.toLowerCase() !== `0x${version.merkleRoot}`.toLowerCase()) {
+  if (onChain.merkleRoot.toLowerCase() !== `0x${anchoredValue(version)}`.toLowerCase()) {
     throw new Error(
       `On-chain anchor for version ${version.id} holds a different root (${onChain.merkleRoot}); refusing to re-anchor.`
     );
@@ -96,7 +96,7 @@ async function reconcileOnChainAnchor(
     const anchorLog = await prisma.anchorLog.create({
       data: {
         documentVersionId: version.id,
-        chainRootHash: version.merkleRoot,
+        chainRootHash: anchoredValue(version),
         objectLockUri: attempt.objectLockUri,
         polygonTxHash: attempt.submittedTxHash,
         submittedTxHash: attempt.submittedTxHash,
@@ -122,8 +122,9 @@ async function reconcileOnChainAnchor(
 }
 
 /**
- * Dual anchor for one document version (CLAUDE.md rule 3): the merkle root
- * goes to MinIO first, then to EvidenceAnchor on Polygon Amoy. Each attempt
+ * Dual anchor for one document version (CLAUDE.md rule 3): the anchored
+ * value (lib/proof-v2.ts anchoredValue: C for v2, the merkle root for
+ * legacy v1) goes to MinIO first, then to EvidenceAnchor on Polygon Amoy. Each attempt
  * is its own AnchorLog row (PENDING -> ANCHORED | FAILED), so retries keep
  * the history of earlier failures.
  *
@@ -151,15 +152,28 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
     if (reconciled) return reconciled;
 
     stage = "minio";
+    // v1 keeps its original record shape; v2 records the anchored
+    // commitment and everything it commits to (docs/03 §v2).
+    const record =
+      version.proofVersion === 1
+        ? { merkle_root: version.merkleRoot, version_no: version.versionNo }
+        : {
+            proof_version: version.proofVersion,
+            commitment: anchoredValue(version),
+            document_root: version.merkleRoot,
+            client_hash: version.clientHash,
+            chain_hash: version.chainHash,
+            version_no: version.versionNo,
+          };
     const objectLockUri = await putObjectLocked(
       `${version.documentId}/v${version.versionNo}/merkle-root.json`,
-      Buffer.from(JSON.stringify({ merkle_root: version.merkleRoot, version_no: version.versionNo }))
+      Buffer.from(JSON.stringify(record))
     );
 
     anchorLog = await prisma.anchorLog.create({
       data: {
         documentVersionId: version.id,
-        chainRootHash: version.merkleRoot,
+        chainRootHash: anchoredValue(version),
         objectLockUri,
         polygonTxHash: null,
         status: "PENDING",
@@ -177,7 +191,7 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
     stage = "polygon";
     const pendingLogId = anchorLog.id;
     const { txHash } = await onChainSerialized(() =>
-      anchorRootOnChain(version.id, version.merkleRoot, async (submitted) => {
+      anchorRootOnChain(version.id, anchoredValue(version), async (submitted) => {
         await prisma.anchorLog.update({ where: { id: pendingLogId }, data: { submittedTxHash: submitted } });
       })
     );

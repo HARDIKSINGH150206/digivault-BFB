@@ -42,9 +42,9 @@ describe("public proof", () => {
     }
   });
 
-  it("keeps the field names /verify reads, so it can be dropped in with page images", () => {
+  it("uses the verification-proof v2 field names", () => {
     const proof = buildPublicProof(input) as Record<string, any>;
-    expect(proof.merkle_root).toBe(root);
+    expect(proof.commitment).toBe(root);
     expect(proof.anchor.polygon_chain_id).toBe(80002);
     expect(proof.anchor.polygon_tx_hash).toBe(tx);
   });

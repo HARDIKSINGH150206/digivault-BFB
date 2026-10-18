@@ -8,6 +8,7 @@ import { JsonRpcProvider, Network, Contract, Interface, keccak256, toUtf8Bytes }
 import { hashTiles, buildMerkleTree, type TileHash } from "@digivault/crypto-core";
 import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../dashboard/_workspace/shell";
+import { describeV2Mismatch, invalidProofV2, recomputeV2, type ProofFileV2 } from "./proof-v2";
 
 /**
  * Court Verification Portal. CLAUDE.md rule 5 / step 6 Part 3 requirements:
@@ -22,9 +23,10 @@ import { BrandMark } from "../dashboard/_workspace/shell";
  *     could otherwise point it at their own contract holding any root.
  *   - MinIO is deliberately never checked here — it's the insider-threat
  *     anchor, not something an external verifier should need to trust.
- *   - Proof formats: `digivault_proof_version: 1` is verified on a read-only
- *     legacy path and labelled "Legacy v1 proof (unsalted)" (ADR-021). Any
- *     other version is refused until its verifier exists (docs/07 Phase 1/3).
+ *   - Proof formats: `digivault_proof_version: 2` (salted tiles, RFC 6962,
+ *     anchored commitment C — docs/03 §v2, ./proof-v2.ts) is current;
+ *     `1` is verified on a read-only legacy path and labelled "Legacy v1
+ *     proof (unsalted)" (ADR-021). Any other version is refused.
  *   - Certificate QR mode (ADR-022): /verify?v=<versionId>&c=<commitment>&tx=<txHash>
  *     checks the commitment and the tx against the chain only — no files,
  *     no MinIO, no backend — and says plainly that no document file was checked.
@@ -48,8 +50,9 @@ const ANCHOR_ABI = [
   "function getAnchor(bytes32 documentVersionId) external view returns (bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
   "event RootAnchored(bytes32 indexed documentVersionId, bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
 ];
-const SUPPORTED_PROOF_VERSIONS = [1];
+const SUPPORTED_PROOF_VERSIONS = [1, 2];
 const LEGACY_V1_LABEL = "Legacy v1 proof (unsalted)";
+const V2_LABEL = "v2 (salted tiles)";
 
 /**
  * Connects to the first reachable RPC that reports Polygon Amoy. Returns
@@ -139,8 +142,8 @@ async function checkCertificate(params: CertificateParams, rpcUrl: string): Prom
   }
 }
 
-interface ProofFile {
-  digivault_proof_version: number;
+interface ProofFileV1 {
+  digivault_proof_version: 1;
   document_version_id: string;
   grid_size: number;
   page_count: number;
@@ -153,6 +156,13 @@ interface ProofFile {
     polygon_tx_hash: string;
     anchored_at: string;
   };
+}
+
+type ProofFile = ProofFileV1 | ProofFileV2;
+
+/** The value the proof says is anchored: C for v2, the merkle root for v1. */
+function claimedAnchor(proof: ProofFile): string {
+  return (proof.digivault_proof_version === 2 ? proof.commitment : proof.merkle_root).toLowerCase();
 }
 
 type Result =
@@ -281,15 +291,20 @@ export default function VerifyPage() {
       if (pngFiles.length === 0) throw new Error("No page PNG file(s) provided.");
 
       const proof = JSON.parse(await proofFile.text()) as ProofFile;
-      if (!proof.merkle_root || !proof.document_version_id) {
-        throw new Error("Proof file is missing required fields.");
-      }
       if (!SUPPORTED_PROOF_VERSIONS.includes(Number(proof.digivault_proof_version))) {
         setResult({
           outcome: "mismatch",
           reason: `Unsupported proof format (digivault_proof_version ${proof.digivault_proof_version}).`,
         });
         return;
+      }
+      // Normalise "2" to 2 so every later branch dispatches the same way.
+      proof.digivault_proof_version = Number(proof.digivault_proof_version) as ProofFile["digivault_proof_version"];
+      if (proof.digivault_proof_version === 2) {
+        const invalid = invalidProofV2(proof);
+        if (invalid) throw new Error(`Proof file is malformed: ${invalid}.`);
+      } else if (!proof.merkle_root || !proof.document_version_id) {
+        throw new Error("Proof file is missing required fields.");
       }
       if (certParams && certParams.versionId !== proof.document_version_id) {
         setResult({
@@ -320,22 +335,34 @@ export default function VerifyPage() {
         return;
       }
 
-      // 1. Recompute the Merkle root from the PNG(s) actually supplied —
+      // 1. Recompute the anchored value from the PNG(s) actually supplied —
       // identical algorithm to packages/crypto-core (see docs/03), no
       // dependency on anything the backend claims about them.
-      const sortedPngs = [...pngFiles].sort((a, b) => a.name.localeCompare(b.name));
-      const allTiles: TileHash[] = [];
-      for (let pageIndex = 0; pageIndex < sortedPngs.length; pageIndex++) {
-        const bytes = await sortedPngs[pageIndex].arrayBuffer();
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
-        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-        canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
-        const tiles = await hashTiles(canvas, pageIndex, proof.grid_size, pageIndex * proof.grid_size ** 2);
-        allTiles.push(...tiles);
+      let recomputed: string;
+      let mismatchReason: string;
+      if (proof.digivault_proof_version === 2) {
+        // v2: salted leaves -> page roots -> R -> C = H(0x03 ‖ fileHash ‖ R).
+        const r = await recomputeV2(proof, pngFiles);
+        recomputed = r.commitment;
+        mismatchReason = describeV2Mismatch(proof, r);
+      } else {
+        // Legacy v1: unsalted leaves, merkletreejs (read-only, ADR-021).
+        const sortedPngs = [...pngFiles].sort((a, b) => a.name.localeCompare(b.name));
+        const allTiles: TileHash[] = [];
+        for (let pageIndex = 0; pageIndex < sortedPngs.length; pageIndex++) {
+          const bytes = await sortedPngs[pageIndex].arrayBuffer();
+          const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+          canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+          const tiles = await hashTiles(canvas, pageIndex, proof.grid_size, pageIndex * proof.grid_size ** 2);
+          allTiles.push(...tiles);
+        }
+        recomputed = buildMerkleTree(allTiles).rootHex;
+        mismatchReason = "The supplied page image(s) do not hash to the root stated in the proof file.";
       }
-      const { rootHex: recomputedRoot } = buildMerkleTree(allTiles);
 
-      const localMatch = recomputedRoot === proof.merkle_root;
+      const claimed = claimedAnchor(proof);
+      const localMatch = recomputed === claimed;
 
       // 2. Check the recomputed root against the public Polygon Amoy
       // record directly — the only source of truth that matters here.
@@ -366,21 +393,21 @@ export default function VerifyPage() {
         return;
       }
 
-      const onChainMatch = onChainRoot === proof.merkle_root.toLowerCase();
+      const onChainMatch = onChainRoot === claimed;
 
       if (localMatch && onChainMatch) {
         setResult({ outcome: "verified", proof });
       } else if (!localMatch) {
         setResult({
           outcome: "mismatch",
-          reason: "The supplied page image(s) do not hash to the root stated in the proof file.",
-          detail: `recomputed=${recomputedRoot} proof=${proof.merkle_root}`,
+          reason: mismatchReason,
+          detail: `recomputed=${recomputed} proof=${claimed}`,
         });
       } else {
         setResult({
           outcome: "mismatch",
           reason: "The proof file's root does not match the public Polygon Amoy record.",
-          detail: `proof=${proof.merkle_root} on_chain=${onChainRoot}`,
+          detail: `proof=${claimed} on_chain=${onChainRoot}`,
         });
       }
     } catch (err) {
@@ -512,7 +539,14 @@ export default function VerifyPage() {
               </div>
             </div>
             <div className="vf-facts">
-              <div>merkle_root: <code title={result.proof.merkle_root} className="vf-code">{shortHash(result.proof.merkle_root)}</code></div>
+              {result.proof.digivault_proof_version === 2 ? (
+                <>
+                  <div>commitment: <code title={result.proof.commitment} className="vf-code">{shortHash(result.proof.commitment)}</code></div>
+                  <div>document_root: <code title={result.proof.document_root} className="vf-code">{shortHash(result.proof.document_root)}</code></div>
+                </>
+              ) : (
+                <div>merkle_root: <code title={result.proof.merkle_root} className="vf-code">{shortHash(result.proof.merkle_root)}</code></div>
+              )}
               <div>
                 polygon_tx_hash:{" "}
                 <a href={`https://amoy.polygonscan.com/tx/${result.proof.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" className="vf-code">
@@ -520,9 +554,9 @@ export default function VerifyPage() {
                 </a>
               </div>
               <div>anchored_at: <code className="vf-code">{result.proof.anchor.anchored_at}</code></div>
-              {Number(result.proof.digivault_proof_version) === 1 && (
-                <div data-testid="proof-format">proof format: <code className="vf-code">{LEGACY_V1_LABEL}</code></div>
-              )}
+              <div data-testid="proof-format">
+                proof format: <code className="vf-code">{result.proof.digivault_proof_version === 1 ? LEGACY_V1_LABEL : V2_LABEL}</code>
+              </div>
             </div>
             <div className="vf-official">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">

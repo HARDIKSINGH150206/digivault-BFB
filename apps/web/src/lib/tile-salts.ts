@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 /**
@@ -79,10 +80,19 @@ export function revealableSalts(salts: Buffer[], maskedTileIndices: Iterable<num
   return salts.flatMap((salt, k) => (masked.has(k) ? [] : [{ k, salt: salt.toString("hex") }]));
 }
 
-/** Stores a version's salts. Write-once: the DB role can't update or delete them. */
-export async function storeVersionSalts(documentVersionId: string, salts: Buffer[], key: SaltKey = saltKeyFromEnv()): Promise<void> {
+/**
+ * Stores a version's salts. Write-once: the DB role can't update or delete
+ * them. Pass the transaction client so the version and its salts are
+ * created together — a v2 version without salts could never be verified.
+ */
+export async function storeVersionSalts(
+  documentVersionId: string,
+  salts: Buffer[],
+  key: SaltKey = saltKeyFromEnv(),
+  db: Prisma.TransactionClient = prisma
+): Promise<void> {
   const set = encryptSaltSet(documentVersionId, salts, key);
-  await prisma.versionSaltSet.create({ data: { documentVersionId, ...set } });
+  await db.versionSaltSet.create({ data: { documentVersionId, ...set } });
 }
 
 /** Loads and decrypts a version's salts, or null if the version has none (v1 / unsalted). */

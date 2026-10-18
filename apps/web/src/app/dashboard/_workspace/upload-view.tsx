@@ -2,7 +2,7 @@
 
 /**
  * Upload page. Roles the upload API rejects see a notice instead of the form.
- *   @digivault/crypto-core hashDocument() in the browser (PDF -> PNG pages -> tile hashes -> Merkle root)
+ *   @digivault/crypto-core hashDocumentV2() in the browser (PDF -> PNG pages -> salted tile leaves -> root R -> commitment C)
  *   POST /api/v1/evidence/upload (multipart: metadata + page_N PNGs) — the server recomputes and verifies
  *   GET  /api/v1/cases/{caseId} for the page heading
  * With ?document={id} this uploads a new version of that document: metadata
@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
-import { hashDocument, DEFAULT_GRID_SIZE } from "@digivault/crypto-core";
+import { hashDocumentV2, DEFAULT_GRID_SIZE, DV2_PROOF_VERSION } from "@digivault/crypto-core";
 import { useAuth } from "@/lib/client/auth-context";
 import { apiFetch, apiJson } from "@/lib/client/api-client";
 import { can } from "@/lib/client/permissions";
@@ -86,7 +86,7 @@ export function WorkspaceUploadView() {
     setError(null);
     try {
       setPhase("hashing");
-      const result = await hashDocument(await file.arrayBuffer(), { gridSize: DEFAULT_GRID_SIZE });
+      const result = await hashDocumentV2(await file.arrayBuffer(), { gridSize: DEFAULT_GRID_SIZE });
 
       setPhase("uploading");
       const metadata = {
@@ -95,10 +95,13 @@ export function WorkspaceUploadView() {
         title: existing ? existing.title : title,
         doc_type: existing ? existing.doc_type : docType,
         source_type: "NATIVE_PDF",
+        proof_version: DV2_PROOF_VERSION,
         grid_size: result.gridSize,
         page_count: result.pageCount,
-        client_hash: result.clientHash,
-        merkle_root: result.merkleRoot,
+        client_hash: result.fileHash,
+        merkle_root: result.documentRoot,
+        commitment: result.commitment,
+        salts: result.salts,
         tiles: result.tiles.map((t) => ({ tile_index: t.index, page_index: t.pageIndex, row: t.row, col: t.col, hash: t.hashHex })),
         pages: result.pages.map((p) => ({ page_index: p.pageIndex, width_px: p.widthPx, height_px: p.heightPx })),
       };

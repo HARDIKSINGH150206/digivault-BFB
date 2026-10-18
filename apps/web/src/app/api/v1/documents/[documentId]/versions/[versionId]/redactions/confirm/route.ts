@@ -3,9 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { requireStepUp } from "@/lib/step-up";
 import { getPagePng, putPagePng } from "@/lib/storage";
-import { redactPagePng, recomputeDocumentHashes } from "@/lib/server-hash";
-import { computeChainHash } from "@/lib/chain-hash";
+import { chainHashV2 } from "@digivault/crypto-core";
+import { redactPagePng, recomputeDocumentHashesV2 } from "@/lib/server-hash";
 import { createVersionTiles, getVersionTiles, TileBackfillError } from "@/lib/tiles-repo";
+import { generateTileSalts, saltKeyFromEnv, storeVersionSalts, type SaltKey } from "@/lib/tile-salts";
+import { PROOF_V2 } from "@/lib/proof-v2";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { anchorVersionInBackground } from "@/lib/anchor";
 
@@ -20,6 +22,10 @@ interface ConfirmBody {
 // redacts silently. The redacted version's merkle_root is ALWAYS computed
 // server-side from the server's own redacted PNGs, never from a
 // client-submitted root, mirroring CLAUDE.md rule 4 for this step too.
+// The redacted version is always v2 (ADR-021), whatever the prior version
+// was, with FRESH server-generated salts: reusing the prior version's salts
+// would hand a masked tile's original salt to anyone given the redacted
+// version's proof (ADR-018).
 export async function POST(
   req: Request,
   { params }: { params: { documentId: string; versionId: string } }
@@ -31,6 +37,17 @@ export async function POST(
   } catch (err) {
     if (err instanceof RbacError) return rbacErrorResponse(err);
     throw err;
+  }
+
+  let saltKey: SaltKey;
+  try {
+    saltKey = saltKeyFromEnv();
+  } catch (err) {
+    console.error("[confirm] salt encryption key unavailable:", err);
+    return Response.json(
+      { error: "SERVER_MISCONFIGURED", message: "Redaction is disabled: the salt encryption key is not configured." },
+      { status: 503 }
+    );
   }
 
   const body = (await req.json()) as ConfirmBody;
@@ -77,16 +94,12 @@ export async function POST(
     redactedBuffers.push(masks.length > 0 ? await redactPagePng(original, gridSize, masks) : original);
   }
 
-  const serverComputed = await recomputeDocumentHashes(redactedBuffers, gridSize);
+  const salts = generateTileSalts(redactedBuffers.length * gridSize * gridSize);
+  const serverComputed = await recomputeDocumentHashesV2(redactedBuffers, gridSize, salts);
 
   const versionNo = priorVersion.versionNo + 1;
   const timestamp = new Date();
-  const chainHash = await computeChainHash({
-    previousHash: priorVersion.chainHash,
-    merkleRoot: serverComputed.merkleRoot,
-    versionNo,
-    timestamp,
-  });
+  const chainHash = chainHashV2({ previousHash: priorVersion.chainHash, commitment: serverComputed.commitment, versionNo, timestamp });
 
   const storagePrefix = `${documentId}/v${versionNo}`;
   for (let i = 0; i < redactedBuffers.length; i++) {
@@ -94,20 +107,26 @@ export async function POST(
   }
   const storageUri = `s3://${process.env.MINIO_BUCKET ?? "digivault-evidence"}/${storagePrefix}/`;
 
-  let newVersion = await prisma.documentVersion.create({
-    data: {
-      documentId,
-      versionNo,
-      merkleRoot: serverComputed.merkleRoot,
-      clientHash: serverComputed.clientHash,
-      storageUri,
-      previousHash: priorVersion.chainHash,
-      chainHash,
-      gridSize,
-      uploadedById: actor.userId,
-      status: "PROCESSING",
-      timestamp,
-    },
+  let newVersion = await prisma.$transaction(async (tx) => {
+    const created = await tx.documentVersion.create({
+      data: {
+        documentId,
+        versionNo,
+        proofVersion: PROOF_V2,
+        merkleRoot: serverComputed.documentRoot,
+        commitment: serverComputed.commitment,
+        clientHash: serverComputed.fileHash,
+        storageUri,
+        previousHash: priorVersion.chainHash,
+        chainHash,
+        gridSize,
+        uploadedById: actor.userId,
+        status: "PROCESSING",
+        timestamp,
+      },
+    });
+    await storeVersionSalts(created.id, salts, saltKey, tx);
+    return created;
   });
 
   await createVersionTiles(documentId, newVersion.id, serverComputed.tiles);
@@ -170,7 +189,9 @@ export async function POST(
       version_no: versionNo,
       previous_hash: priorVersion.chainHash,
       chain_hash: chainHash,
-      merkle_root: serverComputed.merkleRoot,
+      proof_version: PROOF_V2,
+      merkle_root: serverComputed.documentRoot,
+      commitment: serverComputed.commitment,
       status: newVersion.status,
       anchor_status: "PENDING",
       redacted_tile_count: body.confirmed_tile_indices.length,
