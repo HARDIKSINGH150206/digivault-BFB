@@ -32,9 +32,11 @@ export type AuditAction =
   | "SHARE_REVOKED"
   | "SHARE_LINK_ACCESSED"
   | "SHARE_LINK_DOWNLOADED"
-  | "WEBAUTHN_REGISTERED";
+  | "WEBAUTHN_REGISTERED"
+  // Written once by scripts/audit-legacy-genesis.mjs (ADR-026), not by any route.
+  | "AUDIT_LEGACY_GENESIS";
 
-export type AuditTargetType = "User" | "Case" | "DocumentVersion" | "AnchorLog" | "DocumentShare";
+export type AuditTargetType = "User" | "Case" | "DocumentVersion" | "AnchorLog" | "DocumentShare" | "AuditLog";
 
 /**
  * The ONLY way any route writes to AuditLog.

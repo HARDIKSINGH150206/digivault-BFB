@@ -259,6 +259,12 @@ The portal is public, stateless, and makes **zero calls to DigiVault's backend**
 
 When the contract is redeployed, update those constants in `apps/web/src/app/verify/page.tsx` together with `packages/contracts/deployments/amoy.json`.
 
+**Proof versions (ADR-021):** `digivault_proof_version: 1` is verified on a read-only legacy path and labelled "Legacy v1 proof (unsalted)". Other versions are refused until their verifier ships (v2: `docs/07` Phase 1/3).
+
+**Certificate link (ADR-022):** `/verify?v=<document_version_id>&c=<commitment hex>&tx=<polygon tx hash>`, built from `PUBLIC_BASE_URL` and returned as `public_verify_url` by `GET .../versions/{versionId}` once anchored. The portal checks, against the chain only: `getAnchor(keccak256(v)).merkleRoot == c`, `anchoredBy` is the official account, and tx `tx` succeeded, targeted the official contract and emitted `RootAnchored(keccak256(v), c)`. It reports "commitment anchored", never "document verified". If a proof file is also dropped, its `document_version_id` must equal `v`.
+
+**Public proof file (ADR-022):** for salted (v2+) versions only, a redaction-safe subset of this schema — `digivault_proof_version`, `public: true`, `document_version_id`, `merkle_root`, `grid_size`, `page_count`, `is_redacted`, `anchor`, `verify_url`; no `pages`, no `tiles`, no salts — is published write-once to `<MINIO_PUBLIC_URL>/digivault-public-proofs/proofs/<document_version_id>.json`.
+
 ---
 
 ## 6. Certificate, proof and page downloads

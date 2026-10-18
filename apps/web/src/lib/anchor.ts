@@ -1,6 +1,9 @@
 import type { AnchorLog, DocumentVersion } from "@prisma/client";
 import { prisma } from "./prisma";
-import { putObjectLocked } from "./storage";
+import { putObjectLocked, putPublicProof } from "./storage";
+import { buildPublicProof } from "./public-proof";
+import { getEvidenceAnchorDeployment } from "./contract-address";
+import { getVersionPageIndices } from "./tiles-repo";
 import { anchorRootOnChain, getOnChainAnchor, getTxOutcome } from "./polygon";
 import { writeAuditLog } from "./audit";
 
@@ -24,6 +27,36 @@ function onChainSerialized<T>(fn: () => Promise<T>): Promise<T> {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * ADR-022: once a SALTED (v2+) version is anchored, publish its
+ * redaction-safe public proof. v1 versions are legacy (ADR-021) and get no
+ * new public proof. Never throws — publication is a convenience on top of
+ * the anchor, not part of it.
+ */
+async function publishPublicProofIfSalted(version: DocumentVersion, anchorLog: AnchorLog): Promise<void> {
+  try {
+    const salted = await prisma.versionSaltSet.findUnique({ where: { documentVersionId: version.id }, select: { id: true } });
+    if (!salted || !anchorLog.polygonTxHash) return;
+    const { chainId, address } = getEvidenceAnchorDeployment();
+    const pageCount = (await getVersionPageIndices(version)).length;
+    await putPublicProof(
+      version.id,
+      buildPublicProof({
+        proofVersion: 2,
+        documentVersionId: version.id,
+        // Phase 1 replaces this with the commitment C = H(0x03 ‖ fileHash ‖ R).
+        commitment: version.merkleRoot,
+        gridSize: version.gridSize,
+        pageCount,
+        isRedacted: version.isRedacted,
+        anchor: { chainId, contractAddress: address, txHash: anchorLog.polygonTxHash, anchoredAt: anchorLog.anchoredAt },
+      })
+    );
+  } catch (err) {
+    console.error(`[anchor] public proof not published for ${version.id}:`, errorMessage(err));
+  }
 }
 
 /**
@@ -78,6 +111,7 @@ async function reconcileOnChainAnchor(
       targetMeta: { documentVersionId: version.id, polygonTxHash: attempt.submittedTxHash, reconciledFrom: attempt.id },
       sourceIp,
     });
+    await publishPublicProofIfSalted(version, anchorLog);
     return { status: "ANCHORED", anchorLog };
   }
 
@@ -159,6 +193,7 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
       targetMeta: { documentVersionId: version.id, polygonTxHash: txHash },
       sourceIp,
     });
+    await publishPublicProofIfSalted(version, anchorLog);
     return { status: "ANCHORED", anchorLog };
   } catch (err) {
     const message = errorMessage(err);

@@ -103,3 +103,58 @@ export async function putObjectLocked(objectKey: string, body: Buffer): Promise<
   }
   return `s3://${ANCHOR_BUCKET}/${objectKey}${versionId ? `?versionId=${versionId}` : ""}`;
 }
+
+/**
+ * Public, redaction-safe proof files (ADR-022; content rules in
+ * lib/public-proof.ts). Own bucket: Object Lock (Compliance, same
+ * retention as anchor records) so a published proof can't be swapped, plus
+ * an anonymous-read policy on proofs/* only — no listing, nothing else.
+ * MINIO_PUBLIC_URL is the browser-reachable MinIO origin (LAN IP / tunnel
+ * for demos); it defaults to the server-side endpoint.
+ */
+const PUBLIC_PROOF_BUCKET = process.env.MINIO_PUBLIC_PROOF_BUCKET ?? "digivault-public-proofs";
+
+let publicBucketEnsured = false;
+async function ensurePublicProofBucket(): Promise<void> {
+  if (publicBucketEnsured) return;
+  const exists = await minioClient.bucketExists(PUBLIC_PROOF_BUCKET).catch(() => false);
+  if (!exists) {
+    await minioClient.makeBucket(PUBLIC_PROOF_BUCKET, "us-east-1", { ObjectLocking: true });
+    await minioClient.setObjectLockConfig(PUBLIC_PROOF_BUCKET, {
+      mode: "COMPLIANCE",
+      unit: "Days",
+      validity: ANCHOR_RETENTION_DAYS,
+    } as Parameters<typeof minioClient.setObjectLockConfig>[1]);
+  }
+  await minioClient.setBucketPolicy(
+    PUBLIC_PROOF_BUCKET,
+    JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Principal: { AWS: ["*"] },
+          Action: ["s3:GetObject"],
+          Resource: [`arn:aws:s3:::${PUBLIC_PROOF_BUCKET}/proofs/*`],
+        },
+      ],
+    })
+  );
+  publicBucketEnsured = true;
+}
+
+export function publicProofUrl(documentVersionId: string): string {
+  const base =
+    process.env.MINIO_PUBLIC_URL ?? `http://${process.env.MINIO_ENDPOINT ?? "localhost"}:${process.env.MINIO_PORT ?? 9000}`;
+  return `${base.replace(/\/+$/, "")}/${PUBLIC_PROOF_BUCKET}/proofs/${encodeURIComponent(documentVersionId)}.json`;
+}
+
+/** Publishes a version's public proof (write-once) and returns its anonymous URL. */
+export async function putPublicProof(documentVersionId: string, proof: object): Promise<string> {
+  await ensurePublicProofBucket();
+  const body = Buffer.from(JSON.stringify(proof, null, 2));
+  await minioClient.putObject(PUBLIC_PROOF_BUCKET, `proofs/${documentVersionId}.json`, body, body.byteLength, {
+    "Content-Type": "application/json",
+  });
+  return publicProofUrl(documentVersionId);
+}

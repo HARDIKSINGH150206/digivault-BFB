@@ -120,6 +120,7 @@ model DocumentVersion {
 
   anchors AnchorLog[]
   tiles   Tile[]
+  salts   VersionSaltSet?
 
   @@unique([documentId, versionNo])
 }
@@ -208,4 +209,23 @@ model DocumentShare {
   viewCount      Int       @default(0)
   revokedAt      DateTime?
   createdAt      DateTime  @default(now())
+}
+
+// Per-tile leaf salts for one version (ADR-018), encrypted as one blob:
+// AES-256-GCM over the 32-byte salts concatenated in tileIndex order, with
+// "<documentVersionId>|<tileCount>" as associated data so a blob can't be
+// moved to another version. Salts are evidence — losing them makes the
+// version's anchored commitment unverifiable — so the app role has UPDATE
+// and DELETE revoked (migration 20261018130000_tile_salts). Masked-tile
+// salts never leave the server (lib/tile-salts.ts: revealableSalts).
+model VersionSaltSet {
+  id                String          @id @default(cuid())
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id])
+  documentVersionId String          @unique
+  tileCount         Int
+  keyId             String
+  iv                Bytes
+  ciphertext        Bytes
+  authTag           Bytes
+  createdAt         DateTime        @default(now())
 }

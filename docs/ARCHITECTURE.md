@@ -71,7 +71,8 @@ Sections marked **(v2)** describe planned state; everything else is current code
 ### 3.4 Public verification (rule 5)
 - Verifier drops page PNGs + `verification-proof.json`.
 - Portal re-tiles and re-hashes in the browser, compares to the proof, then reads `getAnchor()` from the **hardcoded** contract/chain/anchorer. Proof-supplied contract addresses are never used for lookup.
-- Outcomes: Verified · Mismatch (naming the failing tile) · Invalid–untrusted.
+- Outcomes: Verified · Mismatch (naming the failing tile) · Invalid–untrusted. v1 proofs are labelled "Legacy v1 proof (unsalted)"; unknown proof versions are refused (ADR-021).
+- Certificate link mode `/verify?v=&c=&tx=` (ADR-022): chain-only check that the commitment is anchored for that version by that tx — explicitly not a file check. RPC: the configured default, then `rpc-amoy.polygon.technology`.
 
 ### 3.5 Sharing
 - IO creates a share (expiry, max views). Token is the credential; recipient needs no account.
@@ -93,7 +94,9 @@ User ─┬─< Case ─< Document ─< DocumentVersion ─< AnchorLog
 
 Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, gridSize, isRedacted, status}`; `Tile.{documentVersionId, tileIndex, pageIndex, row, col, tileHash}`; `RedactionFlag.{entityType, confidenceScore, source, masked, reviewedBy}`; `AuditLog.{seq, prevHash, entryHash}`; `AnchorLog.{status, polygonTxHash, submittedTxHash, objectLockUri}`; `Case.{firRegisteredAt, offenceSections}`.
 
-**(v2) still to add:** encrypted tile-salt storage (after ADR-018); `DocumentVersion.commitment` (Phase 1).
+`VersionSaltSet.{documentVersionId, tileCount, keyId, iv, ciphertext, authTag}` — encrypted per-tile salts, insert-only for the app role (ADR-018; populated from Phase 1).
+
+**(v2) still to add:** `DocumentVersion.commitment` (Phase 1).
 
 ## 5. Trust boundaries
 
@@ -133,7 +136,7 @@ Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, g
 |---|---|---|
 | Anchor records written before P0.2 are in the unlocked evidence bucket | Only newer anchors are WORM-protected in MinIO | — (on-chain anchor still covers them) |
 | Audit chain not yet anchored externally | DB owner can rewrite the whole chain consistently | v2 Phase 4 |
-| 261 audit rows predate the chain (`seq` NULL) | Not covered by chain verification | — (documented) |
+| 261 audit rows predate the chain (`seq` NULL) | Covered by the anchored `AUDIT_LEGACY_GENESIS` digest (ADR-026), not by per-row links | done |
 | `chainHash` concatenates fields without separators | Theoretical input ambiguity | v2 Phase 1 |
 | Merkle tree has no leaf/inner-node domain separation | Proof-forgery ambiguity (`docs/03`) | v2 Phase 1 |
 | Anchor signing key read from `packages/contracts/.env` | Key on disk | Contract v2 rotation; HSM roadmap |

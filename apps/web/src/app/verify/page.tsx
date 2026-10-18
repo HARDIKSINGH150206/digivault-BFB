@@ -2,9 +2,9 @@
 
 import "@/lib/client/buffer-polyfill";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { JsonRpcProvider, Contract, keccak256, toUtf8Bytes } from "ethers";
+import { JsonRpcProvider, Network, Contract, Interface, keccak256, toUtf8Bytes } from "ethers";
 import { hashTiles, buildMerkleTree, type TileHash } from "@digivault/crypto-core";
 import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../dashboard/_workspace/shell";
@@ -22,6 +22,12 @@ import { BrandMark } from "../dashboard/_workspace/shell";
  *     could otherwise point it at their own contract holding any root.
  *   - MinIO is deliberately never checked here — it's the insider-threat
  *     anchor, not something an external verifier should need to trust.
+ *   - Proof formats: `digivault_proof_version: 1` is verified on a read-only
+ *     legacy path and labelled "Legacy v1 proof (unsalted)" (ADR-021). Any
+ *     other version is refused until its verifier exists (docs/07 Phase 1/3).
+ *   - Certificate QR mode (ADR-022): /verify?v=<versionId>&c=<commitment>&tx=<txHash>
+ *     checks the commitment and the tx against the chain only — no files,
+ *     no MinIO, no backend — and says plainly that no document file was checked.
  *   - Three outcomes: VERIFIED; UNTRUSTED (the proof or RPC points at a
  *     chain/contract/anchorer other than DigiVault's official ones); or
  *     MISMATCH for anything else that prevents a definitive VERIFIED (bad
@@ -35,9 +41,103 @@ const TRUSTED_CHAIN_ID = 80002;
 const TRUSTED_ANCHORER = "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873";
 
 const DEFAULT_RPC_URL = process.env.NEXT_PUBLIC_AMOY_RPC_URL || "https://polygon-amoy.drpc.org";
+// Tried in order when the RPC field is left at its default; a user-entered
+// endpoint is used on its own.
+const FALLBACK_RPC_URLS = ["https://rpc-amoy.polygon.technology"];
 const ANCHOR_ABI = [
   "function getAnchor(bytes32 documentVersionId) external view returns (bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
+  "event RootAnchored(bytes32 indexed documentVersionId, bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
 ];
+const SUPPORTED_PROOF_VERSIONS = [1];
+const LEGACY_V1_LABEL = "Legacy v1 proof (unsalted)";
+
+/**
+ * Connects to the first reachable RPC that reports Polygon Amoy. Returns
+ * "wrong-chain" if an endpoint answers for another chain (reported as
+ * UNTRUSTED, not retried), throws if none is reachable.
+ */
+async function connectAmoy(rpcUrl: string): Promise<{ provider: JsonRpcProvider } | { wrongChain: string }> {
+  const urls = rpcUrl === DEFAULT_RPC_URL ? [rpcUrl, ...FALLBACK_RPC_URLS.filter((u) => u !== rpcUrl)] : [rpcUrl];
+  let lastErr: unknown;
+  for (const url of urls) {
+    const provider = new JsonRpcProvider(url, Network.from(TRUSTED_CHAIN_ID), { batchMaxCount: 1, staticNetwork: true });
+    try {
+      const chainId = Number(await provider.send("eth_chainId", []));
+      if (chainId !== TRUSTED_CHAIN_ID) return { wrongChain: `rpc chain_id=${chainId} expected=${TRUSTED_CHAIN_ID}` };
+      return { provider };
+    } catch (err) {
+      lastErr = err;
+      provider.destroy();
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("No Polygon RPC endpoint reachable.");
+}
+
+interface CertificateParams {
+  versionId: string;
+  commitment: string;
+  txHash: string;
+}
+
+type CertificateResult =
+  | { outcome: "checking" }
+  | { outcome: "anchored"; anchoredAt: string; blockNumber: number }
+  | { outcome: "untrusted" | "mismatch"; reason: string; detail?: string };
+
+function readCertificateParams(): CertificateParams | null {
+  if (typeof window === "undefined") return null;
+  const q = new URLSearchParams(window.location.search);
+  const versionId = q.get("v");
+  const commitment = q.get("c")?.toLowerCase().replace(/^0x/, "");
+  const txHash = q.get("tx")?.toLowerCase();
+  if (!versionId || !commitment || !txHash) return null;
+  return { versionId, commitment, txHash };
+}
+
+/** Chain-only check of a certificate's (versionId, commitment, txHash). Never touches files, MinIO or the backend. */
+async function checkCertificate(params: CertificateParams, rpcUrl: string): Promise<CertificateResult> {
+  if (!/^[0-9a-f]{64}$/.test(params.commitment) || !/^0x[0-9a-f]{64}$/.test(params.txHash)) {
+    return { outcome: "mismatch", reason: "The verification link is malformed." };
+  }
+  const conn = await connectAmoy(rpcUrl);
+  if ("wrongChain" in conn) return { outcome: "untrusted", reason: "Invalid — the RPC endpoint is not Polygon Amoy.", detail: conn.wrongChain };
+  const { provider } = conn;
+  try {
+    const key = keccak256(toUtf8Bytes(params.versionId));
+    const contract = new Contract(TRUSTED_CONTRACT, ANCHOR_ABI, provider);
+    const [rootRaw, timestamp, anchoredBy] = await contract.getAnchor(key);
+    const onChainRoot = (rootRaw as string).replace(/^0x/, "").toLowerCase();
+    if (onChainRoot === "0".repeat(64)) return { outcome: "mismatch", reason: "No anchor found on-chain for this document version." };
+    if ((anchoredBy as string).toLowerCase() !== TRUSTED_ANCHORER.toLowerCase()) {
+      return { outcome: "untrusted", reason: "Invalid — anchor was not written by the official DigiVault account.", detail: `anchoredBy=${anchoredBy}` };
+    }
+    if (onChainRoot !== params.commitment) {
+      return { outcome: "mismatch", reason: "The certificate's commitment does not match the public blockchain record.", detail: `certificate=${params.commitment} on_chain=${onChainRoot}` };
+    }
+
+    // The tx named on the certificate must be the one that wrote this anchor.
+    const receipt = await provider.getTransactionReceipt(params.txHash);
+    if (!receipt || receipt.status !== 1) return { outcome: "mismatch", reason: "The transaction on the certificate was not found or failed." };
+    if ((receipt.to ?? "").toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) {
+      return { outcome: "untrusted", reason: "Invalid — the certificate's transaction was not sent to the official contract.", detail: `to=${receipt.to}` };
+    }
+    const iface = new Interface(ANCHOR_ABI);
+    const wroteThisAnchor = receipt.logs.some((log) => {
+      if (log.address.toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) return false;
+      const parsed = iface.parseLog(log);
+      return (
+        parsed?.name === "RootAnchored" &&
+        String(parsed.args.documentVersionId).toLowerCase() === key.toLowerCase() &&
+        String(parsed.args.merkleRoot).replace(/^0x/, "").toLowerCase() === params.commitment
+      );
+    });
+    if (!wroteThisAnchor) return { outcome: "mismatch", reason: "The certificate's transaction did not write this anchor." };
+
+    return { outcome: "anchored", anchoredAt: new Date(Number(timestamp) * 1000).toISOString(), blockNumber: receipt.blockNumber };
+  } finally {
+    provider.destroy();
+  }
+}
 
 interface ProofFile {
   digivault_proof_version: number;
@@ -158,6 +258,21 @@ export default function VerifyPage() {
   const [rpcUrl, setRpcUrl] = useState(DEFAULT_RPC_URL);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [result, setResult] = useState<Result>({ outcome: "idle" });
+  const [certParams, setCertParams] = useState<CertificateParams | null>(null);
+  const [certResult, setCertResult] = useState<CertificateResult | null>(null);
+
+  // Certificate QR link: check the anchor straight away, chain only.
+  useEffect(() => {
+    const params = readCertificateParams();
+    if (!params) return;
+    setCertParams(params);
+    setCertResult({ outcome: "checking" });
+    checkCertificate(params, DEFAULT_RPC_URL)
+      .then(setCertResult)
+      .catch((err) =>
+        setCertResult({ outcome: "mismatch", reason: "The blockchain record could not be checked.", detail: err instanceof Error ? err.message : String(err) })
+      );
+  }, []);
 
   async function handleVerify() {
     setResult({ outcome: "checking" });
@@ -168,6 +283,21 @@ export default function VerifyPage() {
       const proof = JSON.parse(await proofFile.text()) as ProofFile;
       if (!proof.merkle_root || !proof.document_version_id) {
         throw new Error("Proof file is missing required fields.");
+      }
+      if (!SUPPORTED_PROOF_VERSIONS.includes(Number(proof.digivault_proof_version))) {
+        setResult({
+          outcome: "mismatch",
+          reason: `Unsupported proof format (digivault_proof_version ${proof.digivault_proof_version}).`,
+        });
+        return;
+      }
+      if (certParams && certParams.versionId !== proof.document_version_id) {
+        setResult({
+          outcome: "mismatch",
+          reason: "This proof file is for a different document version than the certificate link.",
+          detail: `link=${certParams.versionId} proof=${proof.document_version_id}`,
+        });
+        return;
       }
 
       // 0. The proof's own contract/chain fields are never used for the
@@ -211,16 +341,12 @@ export default function VerifyPage() {
       // record directly — the only source of truth that matters here.
       // The RPC endpoint is user-editable (advanced options), so confirm it
       // actually serves Polygon Amoy before trusting anything it returns.
-      const provider = new JsonRpcProvider(rpcUrl);
-      const { chainId } = await provider.getNetwork();
-      if (Number(chainId) !== TRUSTED_CHAIN_ID) {
-        setResult({
-          outcome: "untrusted",
-          reason: "Invalid — the RPC endpoint is not Polygon Amoy.",
-          detail: `rpc chain_id=${chainId} expected=${TRUSTED_CHAIN_ID}`,
-        });
+      const conn = await connectAmoy(rpcUrl);
+      if ("wrongChain" in conn) {
+        setResult({ outcome: "untrusted", reason: "Invalid — the RPC endpoint is not Polygon Amoy.", detail: conn.wrongChain });
         return;
       }
+      const { provider } = conn;
       const contract = new Contract(TRUSTED_CONTRACT, ANCHOR_ABI, provider);
       const documentVersionIdBytes32 = keccak256(toUtf8Bytes(proof.document_version_id));
       const [onChainRootRaw, , anchoredBy] = await contract.getAnchor(documentVersionIdBytes32);
@@ -289,6 +415,49 @@ export default function VerifyPage() {
         <h1 className="vf-title">Court Document Verification</h1>
         <p className="vf-lede">Independent verification - no account required, no connection to DigiVault servers.</p>
 
+        {certParams && certResult && (
+          <div
+            className={`result-card vf-result ${certResult.outcome === "anchored" ? "vf-ok" : certResult.outcome === "checking" ? "vf-checking" : "vf-bad"}`}
+            role="status"
+            data-testid="certificate-check"
+          >
+            {certResult.outcome === "checking" && (
+              <div className="vf-result-row">
+                <span className="vf-spinner" aria-hidden="true" />
+                <strong>Checking the certificate against the blockchain record...</strong>
+              </div>
+            )}
+            {certResult.outcome === "anchored" && (
+              <>
+                <h2>Certificate commitment is anchored on the public blockchain</h2>
+                <p style={{ color: "var(--paper)" }}>
+                  The commitment and transaction on this certificate match the official DigiVault record. No document file has been
+                  checked yet — add the page images and proof file below to verify the document itself.
+                </p>
+                <div className="vf-facts">
+                  <div>document_version_id: <code className="vf-code">{certParams.versionId}</code></div>
+                  <div>commitment: <code title={certParams.commitment} className="vf-code">{shortHash(certParams.commitment)}</code></div>
+                  <div>
+                    transaction:{" "}
+                    <a href={`https://amoy.polygonscan.com/tx/${certParams.txHash}`} target="_blank" rel="noreferrer" className="vf-code">
+                      {shortHash(certParams.txHash)}
+                    </a>{" "}
+                    (block {certResult.blockNumber})
+                  </div>
+                  <div>anchored_at: <code className="vf-code">{certResult.anchoredAt}</code></div>
+                </div>
+              </>
+            )}
+            {(certResult.outcome === "untrusted" || certResult.outcome === "mismatch") && (
+              <>
+                <h2>{certResult.outcome === "untrusted" ? certResult.reason : "Certificate does not match the blockchain record"}</h2>
+                {certResult.outcome === "mismatch" && <p style={{ color: "var(--paper)" }}>{certResult.reason}</p>}
+                {certResult.detail && <p className="vf-detail">{certResult.detail}</p>}
+              </>
+            )}
+          </div>
+        )}
+
         <div className="vf-card">
           <FileDropZone
             label="Redacted PNG page(s)"
@@ -351,6 +520,9 @@ export default function VerifyPage() {
                 </a>
               </div>
               <div>anchored_at: <code className="vf-code">{result.proof.anchor.anchored_at}</code></div>
+              {Number(result.proof.digivault_proof_version) === 1 && (
+                <div data-testid="proof-format">proof format: <code className="vf-code">{LEGACY_V1_LABEL}</code></div>
+              )}
             </div>
             <div className="vf-official">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">

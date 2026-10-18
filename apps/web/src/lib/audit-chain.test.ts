@@ -47,3 +47,23 @@ describe("audit chain", () => {
     );
   });
 });
+
+// The scripts' reference implementation (verifier + genesis writer) must
+// agree with the app's on the same vectors.
+describe("reference implementation (scripts/lib/audit-chain-ref.mjs)", async () => {
+  // @ts-expect-error — untyped .mjs module
+  const ref = await import("../../scripts/lib/audit-chain-ref.mjs");
+
+  it("reproduces the vectors", () => {
+    for (const row of rows) expect(ref.entryHash(row)).toBe(row.entryHash);
+  });
+
+  it("legacy digest is order-independent on input and sensitive to any edit, add or delete", () => {
+    const legacy = rows.map((r, i) => ({ ...r, id: `row_${i}` }));
+    const digest = ref.legacyRowsDigest(legacy);
+    expect(ref.legacyRowsDigest([...legacy].reverse())).toBe(digest);
+    expect(ref.legacyRowsDigest(legacy.map((r, i) => (i === 1 ? { ...r, sourceIp: "x" } : r)))).not.toBe(digest);
+    expect(ref.legacyRowsDigest(legacy.slice(1))).not.toBe(digest);
+    expect(ref.legacyRowsDigest([...legacy, { ...legacy[0], id: "row_extra" }])).not.toBe(digest);
+  });
+});

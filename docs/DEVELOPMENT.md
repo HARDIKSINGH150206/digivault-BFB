@@ -38,7 +38,7 @@ cp packages/contracts/.env.example packages/contracts/.env
 ```
 
 Fill in:
-- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials. Optional: `MINIO_ANCHOR_BUCKET` / `MINIO_ANCHOR_RETENTION_DAYS` and the `ANCHOR_*` fee caps — see `apps/web/.env.example`.
+- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials. `PUBLIC_BASE_URL` (certificate QR links; use a LAN IP or tunnel for phone demos). `SALT_ENCRYPTION_KEY` (`openssl rand -base64 32`) — required from Phase 1. Optional: `AMOY_RPC_FALLBACK_URLS`, `MINIO_ANCHOR_BUCKET` / `MINIO_ANCHOR_RETENTION_DAYS`, `MINIO_PUBLIC_PROOF_BUCKET` / `MINIO_PUBLIC_URL`, and the `ANCHOR_*` fee caps — see `apps/web/.env.example`.
 - `packages/contracts/.env` — `AMOY_RPC_URL`, `DEPLOYER_PRIVATE_KEY`. The web app reads the signing key from here. **Never commit it.**
 
 Database:
@@ -83,7 +83,10 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | UI e2e (step-up, redaction, cert, share) | `cd apps/web && node scripts/e2e-part2.mjs` |
 | UI e2e (`/verify` against real Amoy anchor) | `cd apps/web && node scripts/e2e-part3.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
-| Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`) |
+| Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check the legacy-rows anchor on Polygon |
+| Anchoring timeout/failover test (local chain) | terminal 1: `pnpm --filter @digivault/contracts exec hardhat node`; terminal 2: `pnpm --filter @digivault/web test:chain` |
+| Public-proof bucket test (local MinIO) | `cd apps/web && MINIO_INTEGRATION=1 pnpm exec vitest run src/lib/storage.minio.test.ts` |
+| Commit pre-chain audit rows (one-off, already done on the dev DB) | `node apps/web/scripts/audit-legacy-genesis.mjs [--dry-run]` — sends one Amoy tx |
 
 The smoke and e2e scripts need the web app running (and the AI service for parts 2–3).
 

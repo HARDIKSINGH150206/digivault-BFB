@@ -9,7 +9,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:chain": "LOCAL_CHAIN_RPC=${LOCAL_CHAIN_RPC:-http://127.0.0.1:8545} vitest run src/lib/polygon.chain.test.ts"
   },
   "dependencies": {
     "@digivault/crypto-core": "workspace:*",

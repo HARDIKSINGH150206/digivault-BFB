@@ -25,7 +25,8 @@ Decisions referenced as `ADR-0xx` are in `docs/DECISIONS.md`.
 
 Problems found reviewing the first draft of this plan against the code. Phases 1–5 depend on them.
 
-**Status (2026-10-18, branch `v2/phase-0-prereqs`):** P0.2, P0.3 (except salt storage), P0.4, P0.7, P0.8 done and tested. Open: P0.1 (ADR-018 decision), salt table (after ADR-018), P0.5 (ADR-021), P0.6 (ADR-022).
+**Status (2026-10-18, branch `v2/phase-0-prereqs`): Phase 0 complete.** All of P0.1–P0.8 done and tested, plus: legacy audit genesis entry anchored (ADR-026); migrations tested on a fresh database; receipt-timeout path tested on a local chain; fee priority cap 30 gwei and fallback RPC (ADR-025).
+Carried into Phase 1: generate salts per tile at upload and store them (`lib/tile-salts.ts` is ready); switch the proof route to v2; use the commitment `C` in `publicVerifyUrl` / `buildPublicProof` (today: the v1 merkle root).
 
 | # | Fix | Why | Where |
 |---|---|---|---|

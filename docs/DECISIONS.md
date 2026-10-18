@@ -102,11 +102,10 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** Standard hiding commitment, cheap to verify in a browser. ZK moves to future work. Salts become evidence that must be preserved (ADR-018).
 
 ## ADR-018 — Salt generation and custody
-**Status:** **Proposed — needs decision before Phase 1**
-**Options:**
-- **A (recommended):** browser generates salts (CSPRNG), sends them with the upload; server recomputes leaves with them (keeps rule 4). Salts stored AES-256-GCM-encrypted in Postgres **and** as an Object-Locked MinIO object per version.
-- **B:** `salt_k = HMAC(serverKey, versionId ‖ k)`. No storage, but the browser can't compute leaves before upload — breaks "client hashes first"; key loss = all proofs lost.
-**Consequences of A:** Encryption key management needed; salt object must be backed up with the PNGs.
+**Status:** Accepted (2026-10-18) — option A; storage implemented in Phase 0, generation/use in Phase 1
+**Options considered:** A — random salts, stored encrypted; B — `salt_k = HMAC(serverKey, versionId ‖ k)` (no storage, but breaks "client hashes first" and key loss loses every proof).
+**Decision:** A random 32-byte salt per tile, stored per version as one AES-256-GCM blob in the `VersionSaltSet` table (associated data `<versionId>|<tileCount>`; key `SALT_ENCRYPTION_KEY` / `SALT_ENCRYPTION_KEY_ID`). The app role can INSERT/SELECT only. Masked-tile salts never leave the server: `lib/tile-salts.ts: revealableSalts()` is the only selector for outgoing salts.
+**Consequences:** The salt key must be backed up like the anchoring key — losing it makes salted commitments unverifiable. Salts live only in Postgres (decision); a MinIO Object-Lock copy was considered and not adopted, so database backups must include `VersionSaltSet`.
 
 ## ADR-019 — Contract v2: rotatable ownership, anchorer allow-list, audit heads
 **Status:** Accepted for v2
@@ -118,14 +117,17 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** Insider edits detectable, except within the window since the last anchored head (≤ 6 h) — documented, not hidden.
 
 ## ADR-021 — Proof format versioning and v1 legacy data
-**Status:** **Proposed — needs decision before Phase 1**
-**Options:** (a) verifier keeps a v1 code path against the legacy contract (recommended — existing anchors stay verifiable); (b) declare v1 demo data disposable and drop v1 verification.
+**Status:** Accepted (2026-10-18), implemented
+**Decision:** `/verify` keeps a read-only v1 path for existing anchors, labelled **"Legacy v1 proof (unsalted)"**; any other `digivault_proof_version` is refused until its verifier exists. No new v1 proofs: from Phase 1, new versions are salted and their proofs are v2. Until Phase 1 lands every version is still v1, so the authenticated proof download keeps serving v1 bundles (it would otherwise break the working court-bundle flow); no *public* v1 proofs are published.
 
 ## ADR-022 — Proof publication for the certificate QR
-**Status:** **Proposed — needs decision before Phase 5**
+**Status:** Accepted (2026-10-18), implemented (QR image on the certificate is Phase 5)
 **Context:** `/verify?version=<id>` would need the app backend to look up the proof, violating rule 5.
-**Options:** (a) proof JSON written as a public, Object-Locked MinIO object; QR carries its URL (recommended); (b) QR encodes version ID + commitment directly (no file fetch, but can't show tile detail).
-**Consequences:** UI must distinguish "commitment anchored" (QR alone) from "file verified" (pages dropped).
+**Decision:** Both, combined:
+- The QR URL embeds everything the chain check needs: `<PUBLIC_BASE_URL>/verify?v=<versionId>&c=<commitment>&tx=<txHash>` (`lib/public-proof.ts: publicVerifyUrl`; exposed as `public_verify_url` on the version API). `/verify` checks `getAnchor(keccak256(v)) == c`, the anchorer, and that tx `tx` succeeded, was sent to the official contract and emitted `RootAnchored(v, c)` — chain only, no MinIO, no backend. `PUBLIC_BASE_URL` makes it work on a LAN IP or tunnel.
+- A redaction-safe public proof (`lib/public-proof.ts: buildPublicProof`) is published write-once to the Object-Locked `digivault-public-proofs` bucket (anonymous GET on `proofs/*` only, no listing). It holds only opaque IDs and hashes — no case/FIR numbers, titles, names, tile hashes, page hashes or salts. Published only for salted versions (ADR-021).
+- "Salted IDs" was interpreted as: the only identifier is the random cuid version ID (not derived from case data), and any tile leaves are salted.
+**Consequences:** The UI says plainly that the QR check proves the certificate's commitment is anchored, and that verifying a document needs its pages; a link and a proof file for different versions are refused together.
 
 ## ADR-023 — Redacted artifact is a PNG bundle at the original render scale
 **Status:** Accepted for v2
@@ -140,7 +142,13 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 ## ADR-025 — Anchoring fee caps and on-chain reconciliation
 **Status:** Accepted, implemented (P0.8)
 **Context:** RPC fee suggestions reached 500 gwei (0.05 POL pre-flight for a 0.003 POL tx), and an anchor whose receipt was lost could never be marked ANCHORED (retry reverts: "already anchored").
-**Decision:** Fees are the RPC suggestion clamped to `ANCHOR_MAX_FEE_GWEI` / `ANCHOR_MAX_PRIORITY_FEE_GWEI`; receipts time out after `ANCHOR_CONFIRM_TIMEOUT_MS`. The tx hash is stored (`AnchorLog.submittedTxHash`) as soon as it is sent. Before sending, `getAnchor()` is checked: a matching root plus a successful recorded tx → new ANCHORED row, no gas spent; a different root → FAILED, never re-sent. JSON-RPC batching is off (free Amoy RPCs reject batches > 3).
+**Decision:** Fees are the RPC suggestion clamped to `ANCHOR_MAX_FEE_GWEI` / `ANCHOR_MAX_PRIORITY_FEE_GWEI`; receipts time out after `ANCHOR_CONFIRM_TIMEOUT_MS`. The tx hash is stored (`AnchorLog.submittedTxHash`) as soon as it is sent. Before sending, `getAnchor()` is checked: a matching root plus a successful recorded tx → new ANCHORED row, no gas spent; a different root → FAILED, never re-sent. JSON-RPC batching is off (free Amoy RPCs reject batches > 3). Defaults: 100 gwei max fee, **30 gwei** priority (≈0.003 POL per anchor). RPCs: `AMOY_RPC_URL`, then `AMOY_RPC_FALLBACK_URLS` (default `https://rpc-amoy.polygon.technology`); failover only on transport errors and never after a tx was broadcast. Receipt-timeout path tested on a local Hardhat chain with mining paused (`pnpm --filter @digivault/web test:chain`).
+
+## ADR-026 — Pre-chain audit rows committed by an anchored genesis entry
+**Status:** Accepted (2026-10-18), done
+**Context:** 261 `AuditLog` rows predate the hash chain (`seq` NULL) and were not covered by it.
+**Decision:** `scripts/audit-legacy-genesis.mjs` computes `SHA256(0x05 ‖ u32 count ‖ rows…)` over those rows (ordered by timestamp, id; field encoding in `scripts/lib/audit-chain-ref.mjs`), dual-anchors it — MinIO `digivault-anchors/audit/legacy-genesis.json` (Object Lock) and `EvidenceAnchor.anchorRoot(keccak256("digivault:audit-legacy-genesis:v1"), digest)` — and appends one chained entry `AUDIT_LEGACY_GENESIS` recording digest, count, tx and MinIO URI. `pnpm audit:verify` recomputes the digest; `--onchain` also checks Polygon.
+**Consequences:** It is appended at seq 58, not seq 1: the chain already had 57 entries, and renumbering them would itself be audit-log tampering. Done once on this database: tx `0x70855cde7a12d1f250d6fe0442cfc2dd7defb5cb4f234c6d28365a3b100b9e63`, block 50517435. A fresh database has no pre-chain rows and needs no genesis entry.
 
 ---
 
