@@ -86,6 +86,7 @@ export async function GET(
           error_message: anchor.errorMessage,
           object_lock_uri: anchor.objectLockUri,
           polygon_tx_hash: anchor.polygonTxHash,
+          contract_address: anchor.contractAddress,
           anchored_at: anchor.anchoredAt.toISOString(),
         }
       : null,

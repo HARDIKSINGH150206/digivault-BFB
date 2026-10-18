@@ -83,7 +83,7 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 |---|---|---|
 | FR-20 | Background dual anchor: MinIO + Polygon Amoy; failure never blocks upload; retry after step-up | ✅ (MinIO Object Lock not enforced yet) |
 | FR-21 | MinIO Object Lock in Compliance mode actually enforced | 🔜 Phase 0 |
-| FR-22 | Contract v2: two-step ownership, anchorer allow-list, audit heads | 🔜 Phase 2 |
+| FR-22 | Contract v2: two-step ownership, anchorer allow-list, audit heads | ✅ Phase 2 |
 | FR-23 | Fee cap and "already landed" reconciliation on retry | 🔜 Phase 0 |
 
 ### 5.4 Redaction

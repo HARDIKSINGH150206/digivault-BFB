@@ -74,6 +74,9 @@ All integers are unsigned big-endian, fixed width (u32 unless stated). `‖` is 
 
 ## Phase 2 — Contract v2 (Day 2)
 
+**Status (2026-10-19, branch `v2/phase-2-contract`): Phase 2 complete.** `EvidenceAnchorV2` deployed to Amoy at `0x01e7e6f83f55873E906465d3447cB43434D4ee67` (block 50527642), 17 Hardhat tests passing, test anchors visible on Polygonscan, the app writes every new anchor to v2 and the verifier trusts v1 (legacy, read-only) and v2. Details and the open questions this phase settled: ADR-028.
+Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay trusted) while `revokeAnchorer(account, compromisedSince)` distrusts its anchors from that time; `isTrusted(docId)`. Pulled forward from Phase 4: each document anchor already carries the current audit head (skipped, not reverted, when the seq isn't new). Phase 4 still owns standalone 6-hourly heads, the MinIO copy of heads and the admin view.
+
 **Where:** `packages/contracts/contracts/EvidenceAnchorV2.sol`, new deploy script, `lib/polygon.ts`, `lib/contract-address.ts`.
 
 - **Ownership:** two-step transfer (`proposeOwner` → `acceptOwnership`).

@@ -1,0 +1,12 @@
+{
+  "network": "amoy",
+  "chainId": 80002,
+  "contractName": "EvidenceAnchorV2",
+  "address": "0x01e7e6f83f55873E906465d3447cB43434D4ee67",
+  "deployTxHash": "0x14a5115c2afd8246ca73598101a4b52ae2e1f4ca7023a286ccc509809fc948de",
+  "deployedBy": "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873",
+  "firstAnchorer": "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873",
+  "blockNumber": 50527642,
+  "gasUsed": 832977,
+  "deployedAt": "2026-10-18T19:03:24.957Z"
+}

@@ -109,7 +109,7 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** The salt key must be backed up like the anchoring key — losing it makes salted commitments unverifiable. Salts live only in Postgres (decision); a MinIO Object-Lock copy was considered and not adopted, so database backups must include `VersionSaltSet`.
 
 ## ADR-019 — Contract v2: rotatable ownership, anchorer allow-list, audit heads
-**Status:** Accepted for v2
+**Status:** Accepted, implemented and deployed (Phase 2, 2026-10-19; details in ADR-028)
 **Decision:** Two-step ownership transfer; owner-managed anchorer set; `anchor(docId, commitment, auditSeq, auditHead)` write-once; `anchorAuditHead(seq, head)` with strictly increasing `seq`. v1 contract kept as read-only legacy.
 
 ## ADR-020 — Hash-chained, periodically anchored audit log
@@ -157,6 +157,17 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Context:** v2 anchors `C = H(0x03 ‖ fileHash ‖ R)` (docs/03 §v2) instead of a Merkle root, while legacy v1 versions keep anchoring their root. Every route that writes, compares or displays the anchored value must pick the right one.
 **Decision:** `DocumentVersion.proofVersion` (default 1) and `commitment` (nullable; a CHECK constraint requires it when `proofVersion = 2`). For v2, `merkleRoot` holds `R` — it stays a Merkle root, as its name says — and `commitment` holds `C`. `lib/proof-v2.ts: anchoredValue()` is the single rule (`C` for v2, `merkleRoot` for v1) used by anchoring, reconciliation, the MinIO record, the public proof, the certificate link, the certificate PDF and the share page. Until contract v2 (Phase 2), `C` is written to the v1 contract's `anchorRoot(bytes32, bytes32)`, which stores any 32-byte value; the proof format, not the contract, says what the value means.
 **Consequences:** `C` binds the exact PNG files as well as the pixels, so a re-encoded page with identical pixels does not verify; the portal says so specifically rather than "mismatch". An RFC 6962 inclusion path does not authenticate tree size by itself, so verifiers take the size from the grid (`grid²` per page, `pageCount` hashed into `R`) and always recompute leaves from pixels — tested in `packages/crypto-core/test/dv2.test.ts`.
+
+## ADR-028 — EvidenceAnchorV2: deployment, revocation semantics, two trusted contracts
+**Status:** Accepted (2026-10-19), implemented (Phase 2)
+**Context:** ADR-019 fixed the interface. Three things it left open: what removing a compromised anchorer means for anchors it already wrote; how the app carries audit heads without risking document anchors; and how the verifier handles anchors on two contracts.
+**Decision:**
+- Deployed to Amoy at `0x01e7e6f83f55873E906465d3447cB43434D4ee67` (tx `0x14a5115c2afd8246ca73598101a4b52ae2e1f4ca7023a286ccc509809fc948de`, block 50527642; record `packages/contracts/deployments/amoy-v2.json`). Owner and first anchorer: the project wallet `0x30F5…2873`.
+- Two ways to take a key off the allow-list. `removeAnchorer` *retires* it (planned rotation): its anchors stay trusted. `revokeAnchorer(account, compromisedSince)` is for a stolen key: anchors by it with timestamp ≥ `compromisedSince` stop being trusted (`isTrusted`, `verify`), earlier ones stay trusted, the time can only be moved earlier, and the account can never be re-added. Without the split, a routine rotation would invalidate every past proof.
+- Writes revert with named custom errors; the app decodes them (ethers doesn't for gas-estimation reverts).
+- The app sends `anchor(docId, C, seq, head)` with the newest audit entry only if its seq is above `latestAuditHead()` (the contract requires a strictly rising seq); otherwise seq 0. Sends are serialized, and the head is read right before sending.
+- The verifier hardcodes both contracts. v2: trust = `isTrusted()`. v1 (legacy, read-only): trust = `anchoredBy` is the v1 account. Proof files say which contract (`anchor.contract_address`, from `AnchorLog.contractAddress`); certificate links are resolved by the tx's `to`.
+**Consequences:** Key rotation needs no redeploy. Phase 1's v2-format test versions stay anchored on v1 and still verify. The v1 contract is never written again by the app (the one-off audit legacy-genesis anchor, ADR-026, stays on v1). Revocation is owner-only, so the owner key is the remaining single point of trust (HSM on the roadmap). Deploy cost 0.025 POL; a document anchor with an audit head ≈ 90k gas (≈0.0027 POL at 30 gwei).
 
 ---
 

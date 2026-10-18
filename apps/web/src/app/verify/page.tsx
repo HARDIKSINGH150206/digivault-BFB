@@ -18,9 +18,13 @@ import { describeV2Mismatch, invalidProofV2, recomputeV2, type ProofFileV2 } fro
  *     file makes exactly one kind of network call: a public JSON-RPC read
  *     against Polygon Amoy, via ethers, for the document_version_id in the
  *     proof file. No fetch() to this app's own /api/* anywhere below.
- *   - The contract, chain and anchoring account are hardcoded below, never
- *     read from the proof file (F-02): a forger who controls the proof file
- *     could otherwise point it at their own contract holding any root.
+ *   - The contracts, chain and v1 anchoring account are hardcoded below,
+ *     never read from the proof file (F-02): a forger who controls the proof
+ *     file could otherwise point it at their own contract holding any root.
+ *     Two official contracts (ADR-028): EvidenceAnchorV2 for every anchor
+ *     since Phase 2 — trust comes from its own allow-list and isTrusted(),
+ *     which excludes anchors by a revoked key — and the v1 EvidenceAnchor,
+ *     read-only, for older anchors, trusted only if written by the v1 account.
  *   - MinIO is deliberately never checked here — it's the insider-threat
  *     anchor, not something an external verifier should need to trust.
  *   - Proof formats: `digivault_proof_version: 2` (salted tiles, RFC 6962,
@@ -36,20 +40,75 @@ import { describeV2Mismatch, invalidProofV2, recomputeV2, type ProofFileV2 } fro
  *     file, unreachable RPC, no anchor, a real hash mismatch). Fail-closed.
  */
 
-// Official EvidenceAnchor deployment (packages/contracts/deployments/amoy.json).
-// If the contract is ever redeployed, update these three together.
-const TRUSTED_CONTRACT = "0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b";
+// Official deployments: packages/contracts/deployments/amoy-v2.json (current)
+// and amoy.json (legacy v1). If a contract is ever redeployed, update these
+// together with that file.
 const TRUSTED_CHAIN_ID = 80002;
-const TRUSTED_ANCHORER = "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873";
+const CONTRACT_V2 = "0x01e7e6f83f55873E906465d3447cB43434D4ee67";
+const LEGACY_V1_CONTRACT = "0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b";
+const LEGACY_V1_ANCHORER = "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873";
 
 const DEFAULT_RPC_URL = process.env.NEXT_PUBLIC_AMOY_RPC_URL || "https://polygon-amoy.drpc.org";
 // Tried in order when the RPC field is left at its default; a user-entered
 // endpoint is used on its own.
 const FALLBACK_RPC_URLS = ["https://rpc-amoy.polygon.technology"];
-const ANCHOR_ABI = [
+const V1_ABI = [
   "function getAnchor(bytes32 documentVersionId) external view returns (bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
   "event RootAnchored(bytes32 indexed documentVersionId, bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
 ];
+const V2_ABI = [
+  "function getAnchor(bytes32 docId) external view returns (bytes32 commitment, uint256 timestamp, address anchoredBy)",
+  "function isTrusted(bytes32 docId) external view returns (bool)",
+  "event DocumentAnchored(bytes32 indexed docId, bytes32 commitment, uint256 timestamp, address indexed anchoredBy)",
+];
+
+interface OfficialContract {
+  address: string;
+  label: string;
+  abi: string[];
+  /** Event that records an anchor, and the names of its (key, value) args. */
+  event: { name: string; key: string; value: string };
+}
+const OFFICIAL_CONTRACTS: OfficialContract[] = [
+  { address: CONTRACT_V2, label: "EvidenceAnchorV2", abi: V2_ABI, event: { name: "DocumentAnchored", key: "docId", value: "commitment" } },
+  {
+    address: LEGACY_V1_CONTRACT,
+    label: "EvidenceAnchor v1 (legacy)",
+    abi: V1_ABI,
+    event: { name: "RootAnchored", key: "documentVersionId", value: "merkleRoot" },
+  },
+];
+
+function officialContract(address: string | null | undefined): OfficialContract | undefined {
+  return OFFICIAL_CONTRACTS.find((c) => c.address.toLowerCase() === String(address ?? "").toLowerCase());
+}
+
+type OnChainAnchor =
+  | { found: false }
+  | { found: true; value: string; timestamp: number; anchoredBy: string; trusted: true }
+  | { found: true; value: string; timestamp: number; anchoredBy: string; trusted: false; reason: string };
+
+/**
+ * The anchor for versionId on one official contract. v2: trusted when the
+ * contract's isTrusted() says so (allow-listed, not revoked as of the anchor
+ * time). v1: trusted only when written by the v1 anchoring account.
+ */
+async function readOfficialAnchor(provider: JsonRpcProvider, official: OfficialContract, versionId: string): Promise<OnChainAnchor> {
+  const key = keccak256(toUtf8Bytes(versionId));
+  const contract = new Contract(official.address, official.abi, provider);
+  const [raw, timestamp, anchoredBy] = await contract.getAnchor(key);
+  const value = (raw as string).replace(/^0x/, "").toLowerCase();
+  if (Number(timestamp) === 0) return { found: false };
+  const base = { found: true as const, value, timestamp: Number(timestamp), anchoredBy: anchoredBy as string };
+  if (official.address === CONTRACT_V2) {
+    return (await contract.isTrusted(key))
+      ? { ...base, trusted: true }
+      : { ...base, trusted: false, reason: "Invalid — the account that wrote this anchor has been revoked by the contract owner." };
+  }
+  return (anchoredBy as string).toLowerCase() === LEGACY_V1_ANCHORER.toLowerCase()
+    ? { ...base, trusted: true }
+    : { ...base, trusted: false, reason: "Invalid — anchor was not written by the official DigiVault account." };
+}
 const SUPPORTED_PROOF_VERSIONS = [1, 2];
 const LEGACY_V1_LABEL = "Legacy v1 proof (unsalted)";
 const V2_LABEL = "v2 (salted tiles)";
@@ -84,7 +143,7 @@ interface CertificateParams {
 
 type CertificateResult =
   | { outcome: "checking" }
-  | { outcome: "anchored"; anchoredAt: string; blockNumber: number }
+  | { outcome: "anchored"; anchoredAt: string; blockNumber: number; contract: string }
   | { outcome: "untrusted" | "mismatch"; reason: string; detail?: string };
 
 function readCertificateParams(): CertificateParams | null {
@@ -106,37 +165,36 @@ async function checkCertificate(params: CertificateParams, rpcUrl: string): Prom
   if ("wrongChain" in conn) return { outcome: "untrusted", reason: "Invalid — the RPC endpoint is not Polygon Amoy.", detail: conn.wrongChain };
   const { provider } = conn;
   try {
-    const key = keccak256(toUtf8Bytes(params.versionId));
-    const contract = new Contract(TRUSTED_CONTRACT, ANCHOR_ABI, provider);
-    const [rootRaw, timestamp, anchoredBy] = await contract.getAnchor(key);
-    const onChainRoot = (rootRaw as string).replace(/^0x/, "").toLowerCase();
-    if (onChainRoot === "0".repeat(64)) return { outcome: "mismatch", reason: "No anchor found on-chain for this document version." };
-    if ((anchoredBy as string).toLowerCase() !== TRUSTED_ANCHORER.toLowerCase()) {
-      return { outcome: "untrusted", reason: "Invalid — anchor was not written by the official DigiVault account.", detail: `anchoredBy=${anchoredBy}` };
-    }
-    if (onChainRoot !== params.commitment) {
-      return { outcome: "mismatch", reason: "The certificate's commitment does not match the public blockchain record.", detail: `certificate=${params.commitment} on_chain=${onChainRoot}` };
-    }
-
-    // The tx named on the certificate must be the one that wrote this anchor.
+    // The tx named on the certificate tells us which official contract to read.
     const receipt = await provider.getTransactionReceipt(params.txHash);
     if (!receipt || receipt.status !== 1) return { outcome: "mismatch", reason: "The transaction on the certificate was not found or failed." };
-    if ((receipt.to ?? "").toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) {
-      return { outcome: "untrusted", reason: "Invalid — the certificate's transaction was not sent to the official contract.", detail: `to=${receipt.to}` };
+    const official = officialContract(receipt.to);
+    if (!official) {
+      return { outcome: "untrusted", reason: "Invalid — the certificate's transaction was not sent to an official DigiVault contract.", detail: `to=${receipt.to}` };
     }
-    const iface = new Interface(ANCHOR_ABI);
+
+    const anchor = await readOfficialAnchor(provider, official, params.versionId);
+    if (!anchor.found) return { outcome: "mismatch", reason: "No anchor found on-chain for this document version." };
+    if (!anchor.trusted) return { outcome: "untrusted", reason: anchor.reason, detail: `anchoredBy=${anchor.anchoredBy}` };
+    if (anchor.value !== params.commitment) {
+      return { outcome: "mismatch", reason: "The certificate's commitment does not match the public blockchain record.", detail: `certificate=${params.commitment} on_chain=${anchor.value}` };
+    }
+
+    // The tx must be the one that wrote this anchor.
+    const key = keccak256(toUtf8Bytes(params.versionId));
+    const iface = new Interface(official.abi);
     const wroteThisAnchor = receipt.logs.some((log) => {
-      if (log.address.toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) return false;
+      if (log.address.toLowerCase() !== official.address.toLowerCase()) return false;
       const parsed = iface.parseLog(log);
       return (
-        parsed?.name === "RootAnchored" &&
-        String(parsed.args.documentVersionId).toLowerCase() === key.toLowerCase() &&
-        String(parsed.args.merkleRoot).replace(/^0x/, "").toLowerCase() === params.commitment
+        parsed?.name === official.event.name &&
+        String(parsed.args[official.event.key]).toLowerCase() === key.toLowerCase() &&
+        String(parsed.args[official.event.value]).replace(/^0x/, "").toLowerCase() === params.commitment
       );
     });
     if (!wroteThisAnchor) return { outcome: "mismatch", reason: "The certificate's transaction did not write this anchor." };
 
-    return { outcome: "anchored", anchoredAt: new Date(Number(timestamp) * 1000).toISOString(), blockNumber: receipt.blockNumber };
+    return { outcome: "anchored", anchoredAt: new Date(anchor.timestamp * 1000).toISOString(), blockNumber: receipt.blockNumber, contract: official.label };
   } finally {
     provider.destroy();
   }
@@ -168,7 +226,7 @@ function claimedAnchor(proof: ProofFile): string {
 type Result =
   | { outcome: "idle" }
   | { outcome: "checking" }
-  | { outcome: "verified"; proof: ProofFile }
+  | { outcome: "verified"; proof: ProofFile; contract: OfficialContract }
   | { outcome: "untrusted"; reason: string; detail?: string }
   | { outcome: "mismatch"; reason: string; detail?: string };
 
@@ -326,11 +384,12 @@ export default function VerifyPage() {
         });
         return;
       }
-      if (String(proof.anchor?.contract_address ?? "").toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) {
+      const official = officialContract(proof.anchor?.contract_address);
+      if (!official) {
         setResult({
           outcome: "untrusted",
           reason: "Invalid — proof references an untrusted contract.",
-          detail: `proof contract=${proof.anchor?.contract_address} official=${TRUSTED_CONTRACT}`,
+          detail: `proof contract=${proof.anchor?.contract_address} official=${OFFICIAL_CONTRACTS.map((c) => c.address).join(",")}`,
         });
         return;
       }
@@ -374,29 +433,27 @@ export default function VerifyPage() {
         return;
       }
       const { provider } = conn;
-      const contract = new Contract(TRUSTED_CONTRACT, ANCHOR_ABI, provider);
-      const documentVersionIdBytes32 = keccak256(toUtf8Bytes(proof.document_version_id));
-      const [onChainRootRaw, , anchoredBy] = await contract.getAnchor(documentVersionIdBytes32);
-      const onChainRoot = (onChainRootRaw as string).replace(/^0x/, "").toLowerCase();
+      let anchor: OnChainAnchor;
+      try {
+        anchor = await readOfficialAnchor(provider, official, proof.document_version_id);
+      } finally {
+        provider.destroy();
+      }
 
-      if (onChainRoot === "0".repeat(64)) {
+      if (!anchor.found) {
         setResult({ outcome: "mismatch", reason: "No anchor found on-chain for this document version." });
         return;
       }
-
-      if ((anchoredBy as string).toLowerCase() !== TRUSTED_ANCHORER.toLowerCase()) {
-        setResult({
-          outcome: "untrusted",
-          reason: "Invalid — anchor was not written by the official DigiVault account.",
-          detail: `anchoredBy=${anchoredBy} official=${TRUSTED_ANCHORER}`,
-        });
+      if (!anchor.trusted) {
+        setResult({ outcome: "untrusted", reason: anchor.reason, detail: `anchoredBy=${anchor.anchoredBy} contract=${official.address}` });
         return;
       }
+      const onChainRoot = anchor.value;
 
       const onChainMatch = onChainRoot === claimed;
 
       if (localMatch && onChainMatch) {
-        setResult({ outcome: "verified", proof });
+        setResult({ outcome: "verified", proof, contract: official });
       } else if (!localMatch) {
         setResult({
           outcome: "mismatch",
@@ -472,6 +529,7 @@ export default function VerifyPage() {
                     (block {certResult.blockNumber})
                   </div>
                   <div>anchored_at: <code className="vf-code">{certResult.anchoredAt}</code></div>
+                  <div>contract: <code className="vf-code">{certResult.contract}</code></div>
                 </div>
               </>
             )}
@@ -564,8 +622,8 @@ export default function VerifyPage() {
                 <path d="m9 12 2 2 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               Verified against official DigiVault contract
-              <a href={`https://amoy.polygonscan.com/address/${TRUSTED_CONTRACT}`} target="_blank" rel="noreferrer" className="vf-code">
-                {shortHash(TRUSTED_CONTRACT)}
+              <a href={`https://amoy.polygonscan.com/address/${result.contract.address}`} target="_blank" rel="noreferrer" className="vf-code">
+                {result.contract.label} {shortHash(result.contract.address)}
               </a>
             </div>
           </div>

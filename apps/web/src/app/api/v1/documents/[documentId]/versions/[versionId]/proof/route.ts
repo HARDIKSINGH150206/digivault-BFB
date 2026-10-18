@@ -3,7 +3,7 @@ import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { getPagePng } from "@/lib/storage";
-import { getEvidenceAnchorDeployment } from "@/lib/contract-address";
+import { getLegacyAnchorDeployment } from "@/lib/contract-address";
 import { commitmentV2, documentRootV2, fileHashOfPngs, fromHex, merkleTreeHash, sha256, toHex } from "@digivault/crypto-core";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { getVersionTiles, TileBackfillError } from "@/lib/tiles-repo";
@@ -87,7 +87,10 @@ export async function GET(
     });
   }
 
-  const { chainId, address } = getEvidenceAnchorDeployment();
+  // The contract this version's anchor actually lives on (ADR-028): v2 for
+  // new anchors, v1 for those written before contract v2.
+  const { chainId, address: legacyAddress } = getLegacyAnchorDeployment();
+  const address = anchorLog.contractAddress ?? legacyAddress;
 
   let proofV2: ReturnType<typeof buildVerificationProofV2> | null = null;
   if (version.proofVersion !== 1) {

@@ -198,6 +198,11 @@ model AnchorLog {
   // Hash of the tx as soon as it is sent, before the receipt. Lets a retry
   // recognise an anchor that landed even though this attempt saw an error.
   submittedTxHash   String?
+  // The EvidenceAnchor contract this attempt wrote to (v1 legacy or v2,
+  // ADR-028). Null only on attempts that failed before choosing one.
+  contractAddress   String?
+  // Audit-log head seq anchored in the same tx (contract v2 only), or null.
+  auditSeq          Int?
   status            AnchorStatus    @default(PENDING)
   errorMessage      String?
 }

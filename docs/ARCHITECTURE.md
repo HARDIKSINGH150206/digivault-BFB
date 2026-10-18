@@ -120,12 +120,12 @@ Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C
 | Curious recipient of redacted copy | Brute-force masked tile content from its hash | Per-tile 32-byte salts; redacted versions get fresh salts | ✅ salts (Phase 1); redaction proofs Phase 3 |
 | Redactor | Show fabricated content inside a "masked" tile | Verifier checks masked tiles are solid mask colour | 🔜 v2 Phase 3 |
 | Share-link holder | Get the unredacted original | Shares serve only redacted versions (F-03) | ✅ |
-| Signing-key thief | Anchor forged commitments | Contract v2 anchorer revocation, owner rotation; HSM roadmap | 🔜 v2 Phase 2 |
+| Signing-key thief | Anchor forged commitments | Contract v2: revoke the key from the compromise time (its later anchors become untrusted in `/verify`), two-step owner rotation (ADR-028); HSM roadmap | ✅ Phase 2 (owner key remains a single point of trust) |
 
 ## 7. Deployment
 
 - **Local / demo:** `docker-compose.yml` runs Postgres 17 (`127.0.0.1:5434`) and MinIO (`9000`, console `9001`); web app via `next dev` on `:3000`; AI service via uvicorn on `:8001`. See `docs/DEVELOPMENT.md`.
-- **Chain:** Polygon Amoy testnet, chainId 80002.
+- **Chain:** Polygon Amoy testnet, chainId 80002. `EvidenceAnchorV2` `0x01e7e6f83f55873E906465d3447cB43434D4ee67` (current); `EvidenceAnchor` v1 `0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b` (legacy, read-only).
 - **Single-instance assumptions:** rate limiters, used-WebAuthn-challenge set and anchor queue are in process memory. Multi-instance needs Redis + a job queue.
 
 ## 8. Known gaps (current code)
@@ -137,6 +137,6 @@ Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C
 | 261 audit rows predate the chain (`seq` NULL) | Covered by the anchored `AUDIT_LEGACY_GENESIS` digest (ADR-026), not by per-row links | done |
 | v1 `chainHash` concatenates fields without separators | Theoretical input ambiguity, legacy versions only | done for new versions (v2 chain hash, Phase 1) |
 | v1 Merkle tree has no leaf/inner-node domain separation | Proof-forgery ambiguity, legacy versions only (`docs/03`) | done for new versions (v2, Phase 1) |
-| v2 commitments are anchored on the v1 contract | Anchorer can't be rotated or revoked yet | v2 Phase 2 |
+| Audit heads are carried by document anchors only | No standalone periodic head anchoring or admin view yet | v2 Phase 4 |
 | Anchor signing key read from `packages/contracts/.env` | Key on disk | Contract v2 rotation; HSM roadmap |
 | PIN fallback always accepted for step-up | Step-up only as strong as the PIN | Open (`docs/04`) |
