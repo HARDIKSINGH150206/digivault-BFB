@@ -6,6 +6,7 @@ import { getPagePng } from "@/lib/storage";
 import { getEvidenceAnchorDeployment } from "@/lib/contract-address";
 import { sha256, toHex } from "@digivault/crypto-core";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { getVersionTiles, TileBackfillError } from "@/lib/tiles-repo";
 
 export const runtime = "nodejs";
 
@@ -50,10 +51,17 @@ export async function GET(
     );
   }
 
-  const tiles = await prisma.tile.findMany({
-    where: { documentId: params.documentId },
-    orderBy: { tileIndex: "asc" },
-  });
+  // This version's own tiles — before ADR-024 this read the document's
+  // current tiles, which was wrong for any superseded version.
+  let tiles;
+  try {
+    tiles = await getVersionTiles(version);
+  } catch (err) {
+    if (err instanceof TileBackfillError) {
+      return Response.json({ error: "INTEGRITY_ERROR", message: err.message }, { status: 409 });
+    }
+    throw err;
+  }
 
   const pageIndices = [...new Set(tiles.map((t) => t.pageIndex))].sort((a, b) => a - b);
   const pages = [];

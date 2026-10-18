@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
+import { getVersionTiles } from "@/lib/tiles-repo";
 
 export const runtime = "nodejs";
 
@@ -43,9 +44,18 @@ export async function GET(
     orderBy: { anchoredAt: "desc" },
   });
 
-  // Tile has no documentVersionId (see lib/tiles-repo.ts) — this is always
-  // the current version's tile count, same caveat as redaction-suggestions.
-  const tileCount = await prisma.tile.count({ where: { documentId: version.documentId } });
+  // Per-version tiles (ADR-024). A legacy version without rows is rebuilt
+  // from its stored pages; if that fails, report 0 rather than fail the read.
+  let tileCount = await prisma.tile.count({ where: { documentVersionId: version.id } });
+  if (tileCount === 0) {
+    tileCount = await getVersionTiles(version).then(
+      (tiles) => tiles.length,
+      (err) => {
+        console.error(`[version] tile backfill failed for ${version.id}:`, err);
+        return 0;
+      }
+    );
+  }
 
   return Response.json({
     document_id: version.documentId,

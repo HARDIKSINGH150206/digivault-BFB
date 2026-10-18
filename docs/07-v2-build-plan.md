@@ -25,6 +25,8 @@ Decisions referenced as `ADR-0xx` are in `docs/DECISIONS.md`.
 
 Problems found reviewing the first draft of this plan against the code. Phases 1–5 depend on them.
 
+**Status (2026-10-18, branch `v2/phase-0-prereqs`):** P0.2, P0.3 (except salt storage), P0.4, P0.7, P0.8 done and tested. Open: P0.1 (ADR-018 decision), salt table (after ADR-018), P0.5 (ADR-021), P0.6 (ADR-022).
+
 | # | Fix | Why | Where |
 |---|---|---|---|
 | P0.1 | **Decide salt generation & custody** (ADR-018). Recommended: browser generates a 32-byte CSPRNG salt per tile, sends salts with the upload, server recomputes leaves with them; salts stored AES-256-GCM-encrypted in Postgres **and** as an Object-Locked MinIO object per version. | Salts become part of the evidence: lose one and that version's anchored root can never be recomputed. Random-but-server-only salts would break rule 4 (client can't hash first). | ADR-018 |

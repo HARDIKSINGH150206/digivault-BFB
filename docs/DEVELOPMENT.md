@@ -38,7 +38,7 @@ cp packages/contracts/.env.example packages/contracts/.env
 ```
 
 Fill in:
-- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials.
+- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials. Optional: `MINIO_ANCHOR_BUCKET` / `MINIO_ANCHOR_RETENTION_DAYS` and the `ANCHOR_*` fee caps — see `apps/web/.env.example`.
 - `packages/contracts/.env` — `AMOY_RPC_URL`, `DEPLOYER_PRIVATE_KEY`. The web app reads the signing key from here. **Never commit it.**
 
 Database:
@@ -82,7 +82,8 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | UI e2e (login, case, upload) | `cd apps/web && node scripts/e2e-part1.mjs` |
 | UI e2e (step-up, redaction, cert, share) | `cd apps/web && node scripts/e2e-part2.mjs` |
 | UI e2e (`/verify` against real Amoy anchor) | `cd apps/web && node scripts/e2e-part3.mjs` |
-| Unit tests | `pnpm test` — **added in v2 P0.7**, does not exist yet |
+| Unit tests (Vitest, crypto-core + web) | `pnpm test` |
+| Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`) |
 
 The smoke and e2e scripts need the web app running (and the AI service for parts 2–3).
 
@@ -130,6 +131,8 @@ The smoke and e2e scripts need the web app running (and the AI service for parts
 | `docker compose` can't pull `minio/minio` | Compose already uses the `quay.io/minio/minio` mirror. |
 | PDF rendering fails / worker 404 | `predev`/`prebuild` copy `pdf.worker.min.mjs` into `public/`; run `node scripts/copy-pdf-worker.mjs` in `apps/web`. |
 | WebAuthn step-up fails | Must be a secure context: `http://localhost` or HTTPS. Set `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` when behind a proxy. |
-| Anchor `FAILED` but tx is on Polygonscan | Known open item (`docs/04`); fixed by v2 P0.8. Retry will revert with "already anchored". |
+| Anchor `FAILED` but tx is on Polygonscan | Retry the anchor: it detects the on-chain anchor and marks it ANCHORED without sending a new tx (ADR-025). Attempts from before P0.8 have no recorded tx hash and stay FAILED with an explanatory message. |
+| Anchoring fails with "Batch of more than 3 requests" | Free RPC plan limit; batching is disabled in `lib/polygon.ts` — make sure nothing else constructs a batching `JsonRpcProvider`. |
+| Anchoring fails at the `minio` stage: "does not have Object Lock enabled" | `MINIO_ANCHOR_BUCKET` points at a bucket created without locking. Use a new bucket name; the app creates it with locking. |
 | Permission errors writing `AuditLog` updates | Expected — `digivault_app` is insert-only on that table. |
 | OCR ignores Kannada | Install `tesseract-ocr-kan`; the service logs a warning naming missing language packs on its first OCR call. |

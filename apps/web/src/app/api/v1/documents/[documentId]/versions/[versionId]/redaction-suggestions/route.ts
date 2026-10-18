@@ -23,14 +23,13 @@ export async function GET(
     return Response.json({ error: "NOT_FOUND", message: "Document version not found." }, { status: 404 });
   }
 
-  // Tile has no documentVersionId (see lib/tiles-repo.ts) — these are
-  // always the CURRENT version's tiles. If versionId isn't the document's
-  // latest version, say so explicitly rather than silently returning stale data.
+  // Flags on this version's own tiles (ADR-024). is_current_version still
+  // tells the UI whether the suggestions are reviewable.
   const document = await prisma.document.findUnique({ where: { id: params.documentId } });
   const isCurrentVersion = document?.currentVersionId === version.id;
 
   const flags = await prisma.redactionFlag.findMany({
-    where: { tile: { documentId: params.documentId } },
+    where: { tile: { documentVersionId: version.id } },
     include: { tile: true },
   });
 

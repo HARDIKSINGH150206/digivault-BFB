@@ -5,7 +5,7 @@ import { requireStepUp } from "@/lib/step-up";
 import { getPagePng, putPagePng } from "@/lib/storage";
 import { redactPagePng, recomputeDocumentHashes } from "@/lib/server-hash";
 import { computeChainHash } from "@/lib/chain-hash";
-import { replaceDocumentTiles } from "@/lib/tiles-repo";
+import { createVersionTiles, getVersionTiles, TileBackfillError } from "@/lib/tiles-repo";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { anchorVersionInBackground } from "@/lib/anchor";
 
@@ -41,9 +41,17 @@ export async function POST(
     return Response.json({ error: "NOT_FOUND", message: "Document version not found." }, { status: 404 });
   }
 
-  const tiles = await prisma.tile.findMany({
-    where: { documentId, tileIndex: { in: body.confirmed_tile_indices } },
-  });
+  let priorTiles;
+  try {
+    priorTiles = await getVersionTiles(priorVersion);
+  } catch (err) {
+    if (err instanceof TileBackfillError) {
+      return Response.json({ error: "INTEGRITY_ERROR", message: err.message }, { status: 409 });
+    }
+    throw err;
+  }
+  const confirmed = new Set(body.confirmed_tile_indices);
+  const tiles = priorTiles.filter((t) => confirmed.has(t.tileIndex));
   if (tiles.length !== body.confirmed_tile_indices.length) {
     return Response.json(
       { error: "BAD_REQUEST", message: "One or more confirmed_tile_indices don't exist on this document." },
@@ -60,12 +68,7 @@ export async function POST(
 
   const gridSize = priorVersion.gridSize;
   const pageCount = Math.max(...tiles.map((t) => t.pageIndex), 0) + 1; // lower bound; refined below
-  const allPageIndices = await prisma.tile.findMany({
-    where: { documentId },
-    distinct: ["pageIndex"],
-    select: { pageIndex: true },
-  });
-  const totalPages = allPageIndices.length || pageCount;
+  const totalPages = new Set(priorTiles.map((t) => t.pageIndex)).size || pageCount;
 
   const redactedBuffers: Buffer[] = [];
   for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
@@ -107,13 +110,13 @@ export async function POST(
     },
   });
 
-  await replaceDocumentTiles(documentId, serverComputed.tiles);
+  await createVersionTiles(documentId, newVersion.id, serverComputed.tiles);
 
-  // The old RedactionFlag rows were deleted by replaceDocumentTiles along
-  // with the old Tile rows (see lib/tiles-repo.ts) — recreate confirmed
-  // ones against the new Tile rows so `masked: true` survives the version bump.
+  // The prior version keeps its own tiles and AI suggestion flags (ADR-024);
+  // the new version gets officer-confirmed flags on its own tiles so
+  // `masked: true` is visible on the redacted version.
   const newTiles = await prisma.tile.findMany({
-    where: { documentId, tileIndex: { in: body.confirmed_tile_indices } },
+    where: { documentVersionId: newVersion.id, tileIndex: { in: body.confirmed_tile_indices } },
   });
   await prisma.redactionFlag.createMany({
     data: newTiles.map((t) => ({

@@ -210,7 +210,7 @@ Current status: hackathon MVP. Known gaps before production use:
 
 - [ ] HSM-backed key management (the anchoring key is currently read from an environment file)
 - [ ] Encryption at rest (page images are currently stored unencrypted in MinIO)
-- [ ] MinIO Object Lock (WORM) on anchor records (not currently configured)
+- [x] MinIO Object Lock (WORM, Compliance mode) on anchor records (`digivault-anchors` bucket)
 - [ ] Audit-log review and user-management screens for administrators
 - [ ] Shared rate-limit, challenge and job-queue storage for multi-instance deployment
 - [ ] Mobile app for field officers

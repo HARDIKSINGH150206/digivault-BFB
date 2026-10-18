@@ -64,7 +64,7 @@ Sections marked **(v2)** describe planned state; everything else is current code
 3. Server masks tiles in its own copy of the PNGs, recomputes root server-side (never from client), stores a new version (`isRedacted = true`), anchors it.
 
 ### 3.3 Anchoring (rule 3)
-- `anchorVersion` writes `merkle-root.json` to MinIO, then calls `anchorRoot(keccak256(versionId), root)`.
+- `anchorVersion` first checks `getAnchor()` and reconciles an anchor that already landed (ADR-025), then writes `merkle-root.json` to the Object-Locked anchor bucket, then calls `anchorRoot(keccak256(versionId), root)` with capped fees, recording the tx hash as soon as it is sent.
 - On-chain sends are serialized through one in-process queue (single signer, nonce safety).
 - Each attempt is an `AnchorLog` row: `PENDING → ANCHORED | FAILED`. Never throws into the caller.
 
@@ -85,15 +85,15 @@ See `docs/07` Phases 3–5. Summary: the verifier proves a redacted copy against
 ```
 User ─┬─< Case ─< Document ─< DocumentVersion ─< AnchorLog
       │                  │
-      │                  ├─< Tile ─< RedactionFlag        (Tile is per Document today; per Version in v2)
+      │                  ├─< Tile ─< RedactionFlag        (Tile also belongs to its DocumentVersion — ADR-024)
       │                  └─< DocumentShare
       ├─< WebAuthnCredential
       └─< AuditLog                                         (insert-only for digivault_app)
 ```
 
-Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, gridSize, isRedacted, status}`; `Tile.{tileIndex, pageIndex, row, col, tileHash}`; `RedactionFlag.{entityType, confidenceScore, source, masked, reviewedBy}`.
+Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, gridSize, isRedacted, status}`; `Tile.{documentVersionId, tileIndex, pageIndex, row, col, tileHash}`; `RedactionFlag.{entityType, confidenceScore, source, masked, reviewedBy}`; `AuditLog.{seq, prevHash, entryHash}`; `AnchorLog.{status, polygonTxHash, submittedTxHash, objectLockUri}`; `Case.{firRegisteredAt, offenceSections}`.
 
-**(v2) additions:** `Tile.documentVersionId`; encrypted tile-salt storage; `AuditLog.{seq, prevHash, entryHash}`; `Case.{firRegisteredAt, offenceSections}`; `DocumentVersion.commitment`.
+**(v2) still to add:** encrypted tile-salt storage (after ADR-018); `DocumentVersion.commitment` (Phase 1).
 
 ## 5. Trust boundaries
 
@@ -113,7 +113,7 @@ Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, g
 | External attacker | Alter a stored page in MinIO | Recomputed root ≠ on-chain anchor | ✅ |
 | Corrupt officer | Upload a doctored file and claim it's original | Anchored at upload time; chain shows any later version | ✅ (detects later change, not pre-upload forgery) |
 | Corrupt admin with DB access | Rewrite tile hashes / roots in Postgres | Anchors on chain; `/verify` never reads DB | ✅ |
-| Corrupt admin with DB owner role | Edit or delete audit rows | Audit hash chain + anchored heads | 🔜 v2 Phase 0/4 |
+| Corrupt admin with DB owner role | Edit or delete audit rows | Audit hash chain (✅ P0.4) + anchored heads (🔜 Phase 4) | partial |
 | Malicious proof author | Point verifier at their own contract | Contract/chain/anchorer hardcoded (F-02) | ✅ |
 | Proof forger | Second-preimage via inner-node-as-leaf / duplicated leaf | RFC 6962 domain separation, no duplication | 🔜 v2 Phase 1 |
 | Curious recipient of redacted copy | Brute-force masked tile content from its hash | Per-tile 32-byte salts | 🔜 v2 Phase 1 |
@@ -131,11 +131,10 @@ Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, g
 
 | Gap | Impact | Fix |
 |---|---|---|
-| `putObjectLocked` does a plain `putObject`; bucket has no Object Lock | Rule 3 MinIO half not enforced | v2 P0.2 |
-| `Tile` rows per document; replaced on each new version | Older versions' tile breakdown lost from DB (recomputable from MinIO) | v2 P0.3 |
-| `AuditLog` not hash-chained | DB owner can rewrite history undetectably | v2 P0.4 + Phase 4 |
+| Anchor records written before P0.2 are in the unlocked evidence bucket | Only newer anchors are WORM-protected in MinIO | — (on-chain anchor still covers them) |
+| Audit chain not yet anchored externally | DB owner can rewrite the whole chain consistently | v2 Phase 4 |
+| 261 audit rows predate the chain (`seq` NULL) | Not covered by chain verification | — (documented) |
 | `chainHash` concatenates fields without separators | Theoretical input ambiguity | v2 Phase 1 |
-| Merkle tree duplicates odd leaves, no domain separation | Proof-forgery ambiguity (`docs/03`) | v2 Phase 1 |
+| Merkle tree has no leaf/inner-node domain separation | Proof-forgery ambiguity (`docs/03`) | v2 Phase 1 |
 | Anchor signing key read from `packages/contracts/.env` | Key on disk | Contract v2 rotation; HSM roadmap |
-| No fee cap on anchoring tx | Overpaying (~0.022 POL seen) | v2 P0.8 |
 | PIN fallback always accepted for step-up | Step-up only as strong as the PIN | Open (`docs/04`) |

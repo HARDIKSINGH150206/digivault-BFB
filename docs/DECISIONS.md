@@ -42,9 +42,9 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** Testnet for the hackathon; tx costs and RPC availability matter; no PII ever on chain.
 
 ## ADR-007 — Dual anchor: MinIO Object Lock + Polygon
-**Status:** Accepted, **partially implemented** (CLAUDE.md rule 3)
+**Status:** Accepted, implemented (CLAUDE.md rule 3)
 **Decision:** Every version's root goes to MinIO under Object Lock (Compliance) and to `EvidenceAnchor.sol`.
-**Consequences:** Today the MinIO write is a plain `putObject`; enforcement is v2 P0.2.
+**Consequences:** Since v2 P0.2, anchor records go to a separate bucket (`MINIO_ANCHOR_BUCKET`, default `digivault-anchors`) created with Object Lock, because locking can't be added to the existing evidence bucket. `putObjectLocked` reads the retention back and fails the anchor if it isn't COMPLIANCE. Records written before P0.2 (`digivault-evidence/.../merkle-root.json`) are not locked.
 
 ## ADR-008 — Stateless public verifier with hardcoded trust anchors
 **Status:** Accepted (CLAUDE.md rule 5; review finding F-02)
@@ -77,7 +77,7 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** Key on disk. Mitigated by ADR-019 (rotation/revocation); HSM is roadmap.
 
 ## ADR-014 — Tiles stored per document
-**Status:** Accepted → to be **superseded by ADR-024**
+**Status:** Superseded by ADR-024
 **Decision:** `Tile` belongs to `Document`; `replaceDocumentTiles` replaces rows on each new version.
 **Consequences:** Older versions' tile breakdown is lost from the DB (still recomputable from MinIO PNGs).
 
@@ -91,7 +91,7 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 
 ## ADR-016 — RFC 6962 domain-separated Merkle tree with per-page roots
 **Status:** Accepted for v2
-**Context:** `merkletreejs` duplicates odd leaves and has no leaf/node separation — a known proof-ambiguity (`docs/03`).
+**Context:** The v1 `merkletreejs` tree has no leaf/inner-node domain separation, so a proof can present an inner node as a leaf (`docs/03`). (It carries odd nodes up unchanged; it does not duplicate them.)
 **Decision:** Leaf prefix `0x00`, node prefix `0x01`, odd node carried up; per-page roots; `R = H(0x02 ‖ pageCount ‖ MTH(pageRoots))`; anchored commitment `C = H(0x03 ‖ fileHash ‖ R)`. Fixed-width big-endian integers. In-repo implementation replaces `merkletreejs`.
 **Consequences:** Every root changes; v1 data handled per ADR-021.
 
@@ -113,8 +113,8 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Decision:** Two-step ownership transfer; owner-managed anchorer set; `anchor(docId, commitment, auditSeq, auditHead)` write-once; `anchorAuditHead(seq, head)` with strictly increasing `seq`. v1 contract kept as read-only legacy.
 
 ## ADR-020 — Hash-chained, periodically anchored audit log
-**Status:** Accepted for v2
-**Decision:** `AuditLog` gains `seq`, `prevHash`, `entryHash`; writes serialized with a Postgres advisory lock. Head anchored with each document anchor and every 6 h (also to MinIO Object Lock).
+**Status:** Accepted for v2 — chain implemented (P0.4); anchoring is Phase 4
+**Decision:** `AuditLog` gains `seq`, `prevHash`, `entryHash`; writes serialized with a Postgres advisory lock. Encoding in `apps/web/src/lib/audit-chain.ts`; independent verifier `pnpm audit:verify`. Rows written before the migration stay unchained (`seq` NULL); the chain starts at seq 1 with a zero `prevHash`. Head anchored with each document anchor and every 6 h (also to MinIO Object Lock).
 **Consequences:** Insider edits detectable, except within the window since the last anchored head (≤ 6 h) — documented, not hidden.
 
 ## ADR-021 — Proof format versioning and v1 legacy data
@@ -133,8 +133,14 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** A PDF wrapper may be produced for convenience, but verification reads the PNGs.
 
 ## ADR-024 — Tiles stored per version
-**Status:** Accepted for v2 (supersedes ADR-014)
-**Decision:** `Tile.documentVersionId`; tile rows are never deleted when a new version is created.
+**Status:** Accepted, implemented (P0.3; supersedes ADR-014)
+**Decision:** `Tile.documentVersionId`; tile rows are never deleted when a new version is created. The migration attached existing rows to each document's current version. Superseded versions from before the migration get their tiles rebuilt from their MinIO page PNGs on first use, and only if the rebuilt root equals the stored `merkleRoot` (`lib/tiles-repo.ts: getVersionTiles`).
+**Consequences:** Fixes a v1 bug: the proof for a superseded version used to contain the current version's tiles.
+
+## ADR-025 — Anchoring fee caps and on-chain reconciliation
+**Status:** Accepted, implemented (P0.8)
+**Context:** RPC fee suggestions reached 500 gwei (0.05 POL pre-flight for a 0.003 POL tx), and an anchor whose receipt was lost could never be marked ANCHORED (retry reverts: "already anchored").
+**Decision:** Fees are the RPC suggestion clamped to `ANCHOR_MAX_FEE_GWEI` / `ANCHOR_MAX_PRIORITY_FEE_GWEI`; receipts time out after `ANCHOR_CONFIRM_TIMEOUT_MS`. The tx hash is stored (`AnchorLog.submittedTxHash`) as soon as it is sent. Before sending, `getAnchor()` is checked: a matching root plus a successful recorded tx → new ANCHORED row, no gas spent; a different root → FAILED, never re-sent. JSON-RPC batching is off (free Amoy RPCs reject batches > 3).
 
 ---
 
