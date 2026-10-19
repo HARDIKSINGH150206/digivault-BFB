@@ -120,6 +120,22 @@ export async function getLatestRedactedVersion(documentId: string): Promise<Shar
   };
 }
 
+/** HTTP responses for a share link that can't be used (docs/04 §7). */
+export const SHARE_ERROR_RESPONSES = {
+  NOT_FOUND: { status: 404 as const, body: { error: "NOT_FOUND", message: "Share link not found." } },
+  REVOKED: { status: 410 as const, body: { error: "SHARE_REVOKED", message: "This link has been revoked" } },
+  EXPIRED: { status: 410 as const, body: { error: "SHARE_EXPIRED", message: "This link has expired" } },
+  EXHAUSTED: {
+    status: 410 as const,
+    body: { error: "SHARE_EXHAUSTED", message: "This link has reached its maximum number of views" },
+  },
+};
+
+export function shareErrorResponse(status: keyof typeof SHARE_ERROR_RESPONSES): Response {
+  const { status: code, body } = SHARE_ERROR_RESPONSES[status];
+  return Response.json(body, { status: code });
+}
+
 export type ShareDownloadCheck =
   | { status: "NOT_FOUND" | "REVOKED" | "EXPIRED" | "EXHAUSTED" }
   | { status: "OK"; documentId: string; shareId: string; createdBy: string; recipientLabel: string };

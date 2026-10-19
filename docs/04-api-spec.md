@@ -327,7 +327,11 @@ All under `/api/v1/documents/{documentId}/versions/{versionId}/`, all roles, eac
 - `GET /api/v1/documents/{documentId}/shares` — `{ shares: [...], sharedVersion: { id, versionNo } | null }`; `sharedVersion` is what recipients would receive.
 - `DELETE /api/v1/documents/{documentId}/shares/{shareId}` — revoke.
 - `GET /api/v1/shares/{token}` and the `/shares/{token}` page — **no session**, the token is the credential. They check revoked (`410`), expired (`410`) and view limit (`410`), and count one view.
-- `GET /api/v1/shares/{token}/download` — **no session**, same checks, not counted as a view. Returns one PDF of the page PNGs.
+- `GET /api/v1/shares/{token}/download` — **no session**, same checks, not counted as a view. Returns one PDF of the page PNGs. The PDF re-encodes the pages, so it can't be verified.
+- `GET /api/v1/shares/{token}/redaction-proof` — **no session**, same checks, not counted as a view. The same `redaction-proof.json` as the officer route (section 6), for the version the share serves; same `409` errors. Audited as `SHARE_LINK_REDACTION_PROOF_DOWNLOADED`.
+- `GET /api/v1/shares/{token}/pages/{pageIndex}` — **no session**, same checks, not counted as a view. One lossless page PNG of the version the share serves (`404` for a page it doesn't have). With the redaction proof, this is what `/verify` needs. Audited as `SHARE_LINK_PAGE_DOWNLOADED`.
+
+The `/shares/{token}` page has a "Download verification files" button that fetches the redaction proof and every page PNG. The original version is still never served: the proof carries only its leaves and its salts for unmasked tiles (docs/03 §Redaction proofs).
 
 **Which version a share serves (F-03):** the newest version with `is_redacted = true` and `status = READY`. The original upload is never served, even when it is the only anchored version. If none exists: `403 NO_REDACTED_VERSION`.
 
@@ -350,6 +354,8 @@ Every write goes through `writeAuditLog` (`apps/web/src/lib/audit.ts`), which ne
 | `VIEW_DOCUMENT_VERSION` | pages/{pageIndex} | `pageIndex`, `versionNo` |
 | `SHARE_CREATED` / `SHARE_REVOKED` | shares | — |
 | `SHARE_LINK_ACCESSED` / `SHARE_LINK_DOWNLOADED` | share view / download | `accessedBy: "share_recipient"`, `recipientLabel`, `versionId`, … |
+| `SHARE_LINK_REDACTION_PROOF_DOWNLOADED` / `SHARE_LINK_PAGE_DOWNLOADED` | share redaction proof / page PNG | as above, plus `originalVersionId` + `maskedTileCount` / `pageIndex` |
+| `DOWNLOAD_REDACTION_PROOF` | redaction-proof | `versionNo`, `originalVersionId`, `maskedTileCount`, `pageCount` |
 | `WEBAUTHN_REGISTERED` | webauthn register/verify | — |
 
 Share recipients have no account, but `actorId` is a required FK to `User`. So share-link rows are attributed to the officer who created the share, with `accessedBy: "share_recipient"`. `DOWNLOAD_PAGE` is defined but not currently written.

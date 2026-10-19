@@ -263,6 +263,7 @@ async function main() {
   }
 
   // 8. Share now allowed, and the download serves the redacted version.
+  let share;
   {
     const { res, body } = await postJson(
       `/api/v1/documents/${documentId}/shares`,
@@ -270,6 +271,7 @@ async function main() {
       auth
     );
     results.share_after_redaction_201 = res.status === 201;
+    share = body;
     const dl = await fetch(`${BASE}/api/v1/shares/${body.token}/download`);
     results.share_serves_redacted_v2 =
       dl.status === 200 && (dl.headers.get("content-disposition") ?? "").includes("-v2.pdf");
@@ -296,6 +298,7 @@ async function main() {
     }
   }
 
+  let officerRedaction;
   // 11. Redaction proof (docs/03 §Redaction proofs): the redacted page plus
   // the proof rebuild the ORIGINAL's commitment (checked with the reference
   // verifier), only tile 0 is masked, and its original salt is withheld.
@@ -314,6 +317,7 @@ async function main() {
         headers: { Authorization: `Bearer ${courtToken}` },
       });
       const png = Buffer.from(await pageRes.arrayBuffer());
+      officerRedaction = { proof, png };
       const check = verifyRedactionProof(proof, [await decode(png)], [png]);
       results.redaction_proof_verifies_against_original =
         check.problems.length === 0 && check.originalCommitment === testPage.commitment && proof.original.versionId === versionId;
@@ -324,6 +328,26 @@ async function main() {
     } else {
       results.redaction_proof_verifies_against_original = `not checked (redaction proof ${res.status}: version not anchored)`;
     }
+  }
+
+  // 12. A share recipient (no session) gets the same redaction proof and
+  // the same page bytes, enough to verify at /verify; nothing once revoked.
+  if (officerRedaction) {
+    const proofRes = await fetch(`${BASE}/api/v1/shares/${share.token}/redaction-proof`);
+    const proof = proofRes.status === 200 ? await proofRes.json() : null;
+    results.share_redaction_proof_matches_officer = JSON.stringify(proof) === JSON.stringify(officerRedaction.proof);
+    const pageRes = await fetch(`${BASE}/api/v1/shares/${share.token}/pages/0`);
+    const png = Buffer.from(await pageRes.arrayBuffer());
+    results.share_page_png_matches_officer = pageRes.status === 200 && png.equals(officerRedaction.png);
+    const missing = await Promise.all(["1", "-1", "abc"].map((i) => fetch(`${BASE}/api/v1/shares/${share.token}/pages/${i}`)));
+    results.share_page_out_of_range_404 = missing.every((r) => r.status === 404);
+    await fetch(`${BASE}/api/v1/documents/${documentId}/shares/${share.shareId}`, { method: "DELETE", headers: auth });
+    const revoked = await Promise.all(
+      [`redaction-proof`, `pages/0`].map((p) => fetch(`${BASE}/api/v1/shares/${share.token}/${p}`))
+    );
+    results.share_verification_files_410_after_revoke = revoked.every((r) => r.status === 410);
+  } else {
+    results.share_redaction_proof_matches_officer = "not checked (no officer redaction proof)";
   }
 
   console.log(JSON.stringify(results, null, 2));

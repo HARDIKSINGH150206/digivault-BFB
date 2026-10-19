@@ -112,6 +112,43 @@ async function checkRedactionProofInPortal(browser, pngPaths, proofPath, dir) {
   return out;
 }
 
+/**
+ * A share-link recipient (no account, fresh context) downloads the
+ * verification files from the share page and verifies them at /verify. The
+ * page PNGs must be byte-identical to the officer's.
+ */
+async function checkShareLinkInPortal(browser, shareToken, officerPngPaths, dir) {
+  const ctx = await browser.newContext({ acceptDownloads: true });
+  const page = await ctx.newPage();
+  logBrowserErrors(page, "recipient");
+  await page.goto(`${BASE}/shares/${shareToken}`);
+  const downloads = [];
+  page.on("download", (d) => downloads.push(d));
+  await page.click('button:has-text("Download verification files")');
+  await page.locator("text=Open the verification page and add them").waitFor({ timeout: 60000 });
+  const shareDir = mkdtempSync(path.join(dir, "share-"));
+  const saved = [];
+  for (const d of downloads) {
+    const dest = path.join(shareDir, d.suggestedFilename());
+    await d.saveAs(dest);
+    saved.push(dest);
+  }
+  await ctx.close();
+  console.log("STEP: share-link verification files ->", saved.map((p) => path.basename(p)));
+
+  const proofPath = saved.find((p) => p.endsWith("redaction-proof.json"));
+  const pngs = saved.filter((p) => p.endsWith(".png")).sort();
+  const officer = [...officerPngPaths].sort();
+  const out = {
+    share_files_complete: Boolean(proofPath) && pngs.length === officer.length,
+    share_pngs_match_officer: pngs.length === officer.length && pngs.every((p, i) => readFileSync(p).equals(readFileSync(officer[i]))),
+  };
+  const result = proofPath ? await verifyInPortal(browser, pngs, proofPath) : { verdict: "no proof downloaded" };
+  console.log("STEP: portal verdict (share-link files) ->", result.verdict);
+  out.share_files_verify = result.verdict.startsWith("Verified redacted copy");
+  return out;
+}
+
 async function main() {
   const pdfPath = await makeTestPdf("e2e-test-part3.pdf", "E2E test FIR — Part 3 (verify portal)");
   const downloadDir = mkdtempSync(path.join(tmpdir(), "digivault-verify-bundle-"));
@@ -154,6 +191,19 @@ async function main() {
   const redactionProofPath = path.join(downloadDir, redactionDownload.suggestedFilename());
   await redactionDownload.saveAs(redactionProofPath);
   console.log("STEP: redaction proof saved ->", path.basename(redactionProofPath));
+
+  // A share link for the recipient check below (docs/04 §7).
+  const documentId = new URL(page.url()).pathname.split("/")[3];
+  const share = await page.evaluate(async (documentId) => {
+    const { token } = JSON.parse(localStorage.getItem("digivault_session"));
+    const res = await fetch(`/api/v1/documents/${documentId}/shares`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ recipientLabel: "E2E recipient", expiresAt: new Date(Date.now() + 86400000).toISOString(), maxViews: 3 }),
+    });
+    return res.json();
+  }, documentId);
+  if (!share.token) throw new Error(`Could not create a share link: ${JSON.stringify(share)}`);
   await officerCtx.close();
 
   const proofPath = savedPaths.find((p) => p.endsWith("verification-proof.json"));
@@ -173,6 +223,7 @@ async function main() {
 
   // --- Unauthenticated: redaction proof against the ORIGINAL's anchor ---
   const redaction = await checkRedactionProofInPortal(browser, pngPaths, redactionProofPath, downloadDir);
+  Object.assign(redaction, await checkShareLinkInPortal(browser, share.token, pngPaths, downloadDir));
 
   await browser.close();
   console.log(JSON.stringify({ genuine: genuine.verdict, forged: forgedResult.verdict, redaction, downloadDir }));

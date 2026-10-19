@@ -4,6 +4,7 @@ import { resolveShareView } from "@/lib/shares-repo";
 import { clientIpFromHeaders } from "@/lib/request-ip";
 import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../../dashboard/_workspace/shell";
+import { ShareVerifyDownloads } from "./verify-downloads";
 
 function formatDate(date: Date): string {
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(date);
@@ -49,6 +50,13 @@ const SHARE_CSS = `
 .sh-primary { display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; margin-top: 22px; border: 1px solid var(--paper); border-radius: 10px; background: var(--paper); color: var(--ink);
   font-size: 15px; font-weight: 500; text-decoration: none; transition: background-color 120ms ease; }
 .sh-primary:hover { background: #ffffff; border-color: #ffffff; }
+.sh-secondary { display: flex; align-items: center; justify-content: center; width: 100%; height: 44px; margin-top: 10px; border: 1px solid var(--line-3); border-radius: 10px; background: transparent; color: var(--paper);
+  font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; transition: border-color 120ms ease; }
+.sh-secondary:hover { border-color: var(--paper-3); }
+.sh-secondary:disabled { cursor: progress; color: var(--paper-3); }
+.sh-secondary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.sh-msg { margin: 10px 0 0; font-size: 13.5px; color: var(--paper-2); line-height: 1.5; }
+.sh-msg-error { color: var(--danger); }
 .sh-help { margin: 16px 0 0; font-size: 14px; color: var(--paper-3); line-height: 1.55; }
 .sh-help a { color: var(--paper); font-weight: 500; text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; }
 .sh-help a:hover { text-decoration-color: var(--paper); }
@@ -142,14 +150,16 @@ export default async function SharedDocumentPage({ params }: { params: { token: 
             <a className="sh-primary" href={`/api/v1/shares/${params.token}/download`}>
               Download redacted document (PDF)
             </a>
+            {anchored && <ShareVerifyDownloads token={params.token} />}
           </>
         )}
         {!version && <p className="sh-help">No redacted version of this document is available yet.</p>}
       </section>
 
       <p className="sh-help">
-        This copy has the areas confirmed by the officer blacked out. To check a document against its public blockchain record, use the{" "}
-        <Link href="/verify">verification page</Link> with a verification bundle from the sharing officer.
+        This copy has the areas confirmed by the officer blacked out. To check that nothing else was changed, download the verification files and add
+        them on the <Link href="/verify">verification page</Link>. It compares the page images with the original document&apos;s public blockchain
+        record without revealing what was blacked out.
       </p>
     </Frame>
   );

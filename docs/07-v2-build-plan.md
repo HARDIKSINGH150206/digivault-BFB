@@ -93,7 +93,7 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 3 — Verifiable redactions (Days 3–4) · headline feature
 
-**Status (2026-10-19, branch `v2/phase-3-redaction-proofs`): Phase 3 complete** for the officer download path. `GET .../redaction-proof` (self-checked before serving), `crypto-core/src/redaction.ts` shared by server and portal, and an independent reference verifier. All four "done when" checks pass in a logged-out browser against real Amoy anchors (`scripts/e2e-part3.mjs`). Not done: share-link recipients can't download the redaction proof or page PNGs yet (they get the PDF). Format and choices: docs/03 §Redaction proofs, ADR-029.
+**Status (2026-10-19, branch `v2/phase-3-redaction-proofs`): Phase 3 complete** for the officer download path. `GET .../redaction-proof` (self-checked before serving), `crypto-core/src/redaction.ts` shared by server and portal, and an independent reference verifier. All four "done when" checks pass in a logged-out browser against real Amoy anchors (`scripts/e2e-part3.mjs`). Share-link recipients get the same files from the share page (`GET /api/v1/shares/{token}/redaction-proof` and `.../pages/{i}`, branch `v2/share-redaction-proof`), checked in a logged-out browser. Format and choices: docs/03 §Redaction proofs, ADR-029.
 
 **Where:** proof generator (`proof` route + new redaction-proof builder), `verify/page.tsx`.
 

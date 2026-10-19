@@ -178,7 +178,7 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 - `redactPagePng` fills masked tiles in the raw RGBA and re-encodes, instead of compositing an SVG, so unmasked pixels are copied bit-for-bit and the mask is exactly `[0, 0, 0, 255]`.
 - The server runs the same check as the portal on every proof before serving it.
 - v1 originals are refused (`LEGACY_ORIGINAL`): their leaves are unsalted.
-**Consequences:** A recipient needs only the redacted PNGs and `redaction-proof.json`. A re-encoded copy fails (the redacted version's own commitment binds the PNG bytes). Redacted versions created before this change used SVG compositing; they verify if their pages were fully opaque, which pdf.js renders are. Share links still serve a PDF; redacted page PNGs and the redaction proof for share recipients are not wired up yet.
+**Consequences:** A recipient needs only the redacted PNGs and `redaction-proof.json`. A re-encoded copy fails (the redacted version's own commitment binds the PNG bytes). Redacted versions created before this change used SVG compositing; they verify if their pages were fully opaque, which pdf.js renders are. Share links serve the redaction proof and the redacted page PNGs as well as the PDF (docs/04 §7); the PDF alone can't be verified.
 
 ---
 
