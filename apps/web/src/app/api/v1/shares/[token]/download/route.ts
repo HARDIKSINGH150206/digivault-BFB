@@ -1,21 +1,11 @@
 import { PDFDocument } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
 import { getPagePng } from "@/lib/storage";
-import { checkShareDownloadable, getLatestRedactedVersion } from "@/lib/shares-repo";
+import { checkShareDownloadable, getLatestRedactedVersion, shareErrorResponse } from "@/lib/shares-repo";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { getVersionPageIndices } from "@/lib/tiles-repo";
 
 export const runtime = "nodejs";
-
-const ERROR_RESPONSES = {
-  NOT_FOUND: { status: 404 as const, body: { error: "NOT_FOUND", message: "Share link not found." } },
-  REVOKED: { status: 410 as const, body: { error: "SHARE_REVOKED", message: "This link has been revoked" } },
-  EXPIRED: { status: 410 as const, body: { error: "SHARE_EXPIRED", message: "This link has expired" } },
-  EXHAUSTED: {
-    status: 410 as const,
-    body: { error: "SHARE_EXHAUSTED", message: "This link has reached its maximum number of views" },
-  },
-};
 
 /**
  * GET /api/v1/shares/{token}/download — unauthenticated, token-as-credential.
@@ -34,10 +24,7 @@ export async function GET(
   { params }: { params: { token: string } }
 ): Promise<Response> {
   const check = await checkShareDownloadable(params.token);
-  if (check.status !== "OK") {
-    const { status, body } = ERROR_RESPONSES[check.status];
-    return Response.json(body, { status });
-  }
+  if (check.status !== "OK") return shareErrorResponse(check.status);
 
   const latestVersion = await getLatestRedactedVersion(check.documentId);
   if (!latestVersion) {
