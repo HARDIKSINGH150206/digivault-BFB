@@ -86,8 +86,9 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | UI e2e (`/verify` against real Amoy anchor, incl. redaction proofs) | `cd apps/web && node scripts/e2e-part3.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
-| Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check the legacy-rows anchor on Polygon |
-| Anchoring timeout/failover test (local chain) | terminal 1: `pnpm --filter @digivault/contracts exec hardhat node`; terminal 2: `pnpm --filter @digivault/web test:chain` |
+| Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check every anchored audit head and the legacy-rows anchor on Polygon (a rewrite with recomputed hashes is located between two anchored heads) |
+| Anchor the audit head now | `/dashboard/audit` as ADMIN → "Anchor audit head now" (step-up; one Amoy tx). The server also does it every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6, `0` = off) |
+| Anchoring timeout/failover + audit-head test (local chain) | terminal 1: `pnpm --filter @digivault/contracts exec hardhat node`; terminal 2: `pnpm --filter @digivault/web test:chain` |
 | Public-proof bucket test (local MinIO) | `cd apps/web && MINIO_INTEGRATION=1 pnpm exec vitest run src/lib/storage.minio.test.ts` |
 | Commit pre-chain audit rows (one-off, already done on the dev DB) | `node apps/web/scripts/audit-legacy-genesis.mjs [--dry-run]` — sends one Amoy tx |
 

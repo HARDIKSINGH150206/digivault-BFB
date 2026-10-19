@@ -16,11 +16,11 @@ export type AnchorResult =
  * On-chain sends are serialized: every anchor is signed by the same
  * deployer wallet, and overlapping sends would fetch the same pending
  * nonce, so all but one would be rejected. On globalThis so all route
- * bundles share one queue.
+ * bundles share one queue. Audit-head anchors (lib/audit-anchor.ts) use it too.
  */
 const globalForAnchor = globalThis as unknown as { __digivaultAnchorQueue?: Promise<unknown> };
 
-function onChainSerialized<T>(fn: () => Promise<T>): Promise<T> {
+export function onChainSerialized<T>(fn: () => Promise<T>): Promise<T> {
   const run = (globalForAnchor.__digivaultAnchorQueue ?? Promise.resolve()).then(fn, fn);
   globalForAnchor.__digivaultAnchorQueue = run.catch(() => undefined);
   return run;
@@ -143,7 +143,7 @@ async function reconcileOnChainAnchor(
 }
 
 /** The newest chained audit entry, carried by the anchor tx (ADR-019/020; docs/07 Phase 4). */
-async function currentAuditHead(): Promise<AuditHead | null> {
+export async function currentAuditHead(): Promise<AuditHead | null> {
   const last = await prisma.auditLog.findFirst({
     where: { seq: { not: null } },
     orderBy: { seq: "desc" },

@@ -357,8 +357,14 @@ Every write goes through `writeAuditLog` (`apps/web/src/lib/audit.ts`), which ne
 | `SHARE_LINK_REDACTION_PROOF_DOWNLOADED` / `SHARE_LINK_PAGE_DOWNLOADED` | share redaction proof / page PNG | as above, plus `originalVersionId` + `maskedTileCount` / `pageIndex` |
 | `DOWNLOAD_REDACTION_PROOF` | redaction-proof | `versionNo`, `originalVersionId`, `maskedTileCount`, `pageCount` |
 | `WEBAUTHN_REGISTERED` | webauthn register/verify | — |
+| `AUDIT_HEAD_ANCHOR_REQUESTED` | admin audit anchor | — (written before anchoring, so the anchored head includes it) |
 
 Share recipients have no account, but `actorId` is a required FK to `User`. So share-link rows are attributed to the officer who created the share, with `accessedBy: "share_recipient"`. `DOWNLOAD_PAGE` is defined but not currently written.
+
+**Anchoring (docs/07 Phase 4, ADR-030).** The head `(seq, entryHash)` is anchored on `EvidenceAnchorV2` with every document anchor and on its own every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6; skipped when nothing is new; `AuditHeadAnchor` rows; copy at `audit-heads/seq-<n>.json` in the Object-Locked anchor bucket). Standalone anchors are not audited, so a quiet log stays fully anchored.
+
+- `GET /api/v1/admin/audit` (`ADMIN`) — verifies the whole chain and compares it with the anchored heads: `{ chain: { ok, checked, head_seq, head_hash } | { ok: false, checked, bad_seq, reason }, anchored: { seq, head, anchored_at, tx_hash, block_number } | null, anchored_matches, unanchored_entries, rewritten_range: { from, to } | null, chain_read_error, interval_hours, recent_attempts }`. Shown at `/dashboard/audit`.
+- `POST /api/v1/admin/audit/anchor` (`ADMIN`, **requires `X-StepUp-Token`**) — anchors the head now. `200 { status: "ANCHORED", seq, entry_hash, tx_hash, block_number, object_lock_uri }` or `200 { status: "SKIPPED", reason }`; `502 { status: "FAILED", reason }`, including when the chain doesn't verify or the database disagrees with the anchored head (nothing is sent).
 
 `sourceIp` comes from `X-Forwarded-For`. With `DIGIVAULT_TRUST_PROXY=true` (a proxy you control rewrites the header) the first hop is used; otherwise the last. Without a trusted proxy the value is client-controlled and should be treated as indicative only.
 

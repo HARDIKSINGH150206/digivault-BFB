@@ -37,7 +37,8 @@ export type AuditAction =
   | "SHARE_LINK_REDACTION_PROOF_DOWNLOADED"
   | "WEBAUTHN_REGISTERED"
   // Written once by scripts/audit-legacy-genesis.mjs (ADR-026), not by any route.
-  | "AUDIT_LEGACY_GENESIS";
+  | "AUDIT_LEGACY_GENESIS"
+  | "AUDIT_HEAD_ANCHOR_REQUESTED";
 
 export type AuditTargetType = "User" | "Case" | "DocumentVersion" | "AnchorLog" | "DocumentShare" | "AuditLog";
 
