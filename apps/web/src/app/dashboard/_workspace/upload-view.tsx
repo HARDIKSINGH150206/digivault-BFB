@@ -2,7 +2,7 @@
 
 /**
  * Upload page. Roles the upload API rejects see a notice instead of the form.
- *   @digivault/crypto-core hashDocument() in the browser (PDF -> PNG pages -> tile hashes -> Merkle root)
+ *   @digivault/crypto-core hashDocumentV2() in the browser (PDF -> PNG pages -> salted tile leaves -> root R -> commitment C)
  *   POST /api/v1/evidence/upload (multipart: metadata + page_N PNGs) — the server recomputes and verifies
  *   GET  /api/v1/cases/{caseId} for the page heading
  * With ?document={id} this uploads a new version of that document: metadata
@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
-import { hashDocument, DEFAULT_GRID_SIZE } from "@digivault/crypto-core";
+import { hashDocumentV2, DEFAULT_GRID_SIZE, DV2_PROOF_VERSION } from "@digivault/crypto-core";
 import { useAuth } from "@/lib/client/auth-context";
 import { apiFetch, apiJson } from "@/lib/client/api-client";
 import { can } from "@/lib/client/permissions";
@@ -28,16 +28,16 @@ type Phase = "idle" | "hashing" | "uploading" | "error";
 
 const UPLOAD_CSS = `
 .ws-upload { max-width: 760px; }
-.ws-drop { margin-top: 6px; display: grid; justify-items: center; gap: 8px; padding: 36px 20px; border: 1.5px dashed var(--line-3); border-radius: 12px;
-  background: var(--ink); text-align: center; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease; }
-.ws-drop:hover, .ws-drop-active { border-color: var(--brand); background: var(--brand-soft); }
+.ws-drop { margin-top: 6px; display: grid; justify-items: center; gap: 8px; padding: 36px 20px; border: 1px dashed var(--line-3); border-radius: 12px;
+  background: transparent; text-align: center; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease; }
+.ws-drop:hover, .ws-drop-active { border-color: var(--paper-3); background: var(--ink-3); }
 .ws-drop:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.ws-drop-icon { width: 48px; height: 48px; border-radius: 12px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; }
-.ws-drop-title { font-size: 15.5px; font-weight: 600; color: var(--paper); }
+.ws-drop-icon { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line-2); color: var(--paper-2); display: grid; place-items: center; }
+.ws-drop-title { font-size: 15px; font-weight: 500; color: var(--paper); }
 .ws-drop-sub { font-size: 13.5px; color: var(--paper-3); }
-.ws-file { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink-2); font-size: 14px; }
+.ws-file { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px; font-size: 14px; }
 .ws-upload-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-.ws-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--brand); animation: ws-spin 800ms linear infinite; flex: none; }
+.ws-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--paper-2); animation: ws-spin 800ms linear infinite; flex: none; }
 @keyframes ws-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ws-spinner { animation: none; } }
 `;
@@ -86,7 +86,7 @@ export function WorkspaceUploadView() {
     setError(null);
     try {
       setPhase("hashing");
-      const result = await hashDocument(await file.arrayBuffer(), { gridSize: DEFAULT_GRID_SIZE });
+      const result = await hashDocumentV2(await file.arrayBuffer(), { gridSize: DEFAULT_GRID_SIZE });
 
       setPhase("uploading");
       const metadata = {
@@ -95,10 +95,13 @@ export function WorkspaceUploadView() {
         title: existing ? existing.title : title,
         doc_type: existing ? existing.doc_type : docType,
         source_type: "NATIVE_PDF",
+        proof_version: DV2_PROOF_VERSION,
         grid_size: result.gridSize,
         page_count: result.pageCount,
-        client_hash: result.clientHash,
-        merkle_root: result.merkleRoot,
+        client_hash: result.fileHash,
+        merkle_root: result.documentRoot,
+        commitment: result.commitment,
+        salts: result.salts,
         tiles: result.tiles.map((t) => ({ tile_index: t.index, page_index: t.pageIndex, row: t.row, col: t.col, hash: t.hashHex })),
         pages: result.pages.map((p) => ({ page_index: p.pageIndex, width_px: p.widthPx, height_px: p.heightPx })),
       };

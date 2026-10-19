@@ -1,11 +1,11 @@
 import { prisma } from "./prisma";
 import type { AiSuggestion } from "./ai-service";
 
-/** Maps ai-service's (pageIndex, row, col) suggestions onto this document's current Tile rows and persists them. */
-export async function persistSuggestionsAsFlags(documentId: string, suggestions: AiSuggestion[]): Promise<number> {
+/** Maps ai-service's (pageIndex, row, col) suggestions onto one version's Tile rows and persists them. */
+export async function persistSuggestionsAsFlags(documentVersionId: string, suggestions: AiSuggestion[]): Promise<number> {
   if (suggestions.length === 0) return 0;
 
-  const tiles = await prisma.tile.findMany({ where: { documentId } });
+  const tiles = await prisma.tile.findMany({ where: { documentVersionId } });
   const tileIdByCoord = new Map(tiles.map((t) => [`${t.pageIndex}:${t.row}:${t.col}`, t.id]));
 
   const data = suggestions

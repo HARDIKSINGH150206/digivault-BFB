@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "compile": "hardhat compile",
-    "deploy:amoy": "hardhat run scripts/deploy.ts --network amoy"
+    "test": "hardhat test",
+    "deploy:amoy": "hardhat run scripts/deploy.ts --network amoy",
+    "deploy:amoy-v2": "hardhat run scripts/deploy-v2.ts --network amoy"
   },
   "devDependencies": {
     "hardhat": "^2.22.10",

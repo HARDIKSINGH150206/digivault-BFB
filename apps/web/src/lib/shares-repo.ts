@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { writeAuditLog } from "./audit";
+import { anchoredValue } from "./proof-v2";
 
 export type ShareViewResult =
   | { status: "NOT_FOUND" }
@@ -86,6 +87,8 @@ export type SharedVersion = {
   id: string;
   versionNo: number;
   merkleRoot: string;
+  /** The anchored value (C for v2, the merkle root for v1) — what Polygonscan shows. */
+  commitment: string;
   chainHash: string;
   timestamp: Date;
   storageUri: string;
@@ -109,6 +112,7 @@ export async function getLatestRedactedVersion(documentId: string): Promise<Shar
     id: version.id,
     versionNo: version.versionNo,
     merkleRoot: version.merkleRoot,
+    commitment: anchoredValue(version),
     chainHash: version.chainHash,
     timestamp: version.timestamp,
     storageUri: version.storageUri,

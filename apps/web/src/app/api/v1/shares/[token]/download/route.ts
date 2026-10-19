@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getPagePng } from "@/lib/storage";
 import { checkShareDownloadable, getLatestRedactedVersion } from "@/lib/shares-repo";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { getVersionPageIndices } from "@/lib/tiles-repo";
 
 export const runtime = "nodejs";
 
@@ -46,15 +47,11 @@ export async function GET(
     );
   }
 
-  const tiles = await prisma.tile.findMany({
-    where: { documentId: check.documentId },
-    select: { pageIndex: true },
-    distinct: ["pageIndex"],
-    orderBy: { pageIndex: "asc" },
-  });
+  const fullVersion = await prisma.documentVersion.findUniqueOrThrow({ where: { id: latestVersion.id } });
+  const pageIndices = await getVersionPageIndices(fullVersion);
 
   const pdf = await PDFDocument.create();
-  for (const { pageIndex } of tiles) {
+  for (const pageIndex of pageIndices) {
     const png = await getPagePng(`${check.documentId}/v${latestVersion.versionNo}/page-${pageIndex}.png`);
     const embedded = await pdf.embedPng(png);
     const page = pdf.addPage([embedded.width, embedded.height]);
@@ -74,7 +71,7 @@ export async function GET(
       documentId: check.documentId,
       versionId: latestVersion.id,
       versionNo: latestVersion.versionNo,
-      pageCount: tiles.length,
+      pageCount: pageIndices.length,
     },
     sourceIp: sourceIpFromRequest(req),
   });

@@ -1,10 +1,12 @@
 import { Prisma, Role, DocumentSourceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
-import { recomputeDocumentHashes } from "@/lib/server-hash";
+import { chainHashV2 } from "@digivault/crypto-core";
+import { recomputeDocumentHashesV2 } from "@/lib/server-hash";
 import { putPagePng } from "@/lib/storage";
-import { computeChainHash } from "@/lib/chain-hash";
-import { replaceDocumentTiles } from "@/lib/tiles-repo";
+import { createVersionTiles } from "@/lib/tiles-repo";
+import { saltKeyFromEnv, storeVersionSalts, type SaltKey } from "@/lib/tile-salts";
+import { parseUploadSalts, PROOF_V2 } from "@/lib/proof-v2";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { requestRedactionSuggestions } from "@/lib/ai-service";
 import { persistSuggestionsAsFlags } from "@/lib/redaction-suggestions-repo";
@@ -18,10 +20,15 @@ interface UploadMetadata {
   title?: string;
   doc_type?: string;
   source_type?: DocumentSourceType;
+  proof_version: number;
   grid_size: number;
   page_count: number;
   client_hash: string;
+  /** Document root R (docs/03 §v2). */
   merkle_root: string;
+  commitment: string;
+  /** One 32-byte hex salt per tile, global tile order (ADR-018). */
+  salts: string[];
   tiles: { tile_index: number; page_index: number; row: number; col: number; hash: string }[];
   pages: { page_index: number; width_px: number; height_px: number }[];
 }
@@ -40,6 +47,8 @@ function isValidMetadataShape(m: Record<string, unknown>): boolean {
     isPositiveInt(m.page_count) &&
     typeof m.client_hash === "string" &&
     typeof m.merkle_root === "string" &&
+    typeof m.commitment === "string" &&
+    Array.isArray(m.salts) &&
     Array.isArray(m.tiles) &&
     Array.isArray(m.pages) &&
     (hasDocumentId || typeof m.case_id === "string")
@@ -54,6 +63,19 @@ export async function POST(req: Request): Promise<Response> {
   } catch (err) {
     if (err instanceof RbacError) return rbacErrorResponse(err);
     throw err;
+  }
+
+  // Fail before doing any work if salts can't be stored: a v2 version
+  // whose salts are lost can never be verified (ADR-018).
+  let saltKey: SaltKey;
+  try {
+    saltKey = saltKeyFromEnv();
+  } catch (err) {
+    console.error("[upload] salt encryption key unavailable:", err);
+    return Response.json(
+      { error: "SERVER_MISCONFIGURED", message: "Uploads are disabled: the salt encryption key is not configured." },
+      { status: 503 }
+    );
   }
 
   let form: FormData;
@@ -75,6 +97,13 @@ export async function POST(req: Request): Promise<Response> {
   if (parsed === null) {
     return Response.json({ error: "BAD_REQUEST", message: "Missing metadata part." }, { status: 400 });
   }
+  if (typeof parsed === "object" && !Array.isArray(parsed) && (parsed as Record<string, unknown>).proof_version !== PROOF_V2) {
+    // ADR-021: no new v1 (unsalted) versions.
+    return Response.json(
+      { error: "BAD_REQUEST", message: `Unsupported proof_version; uploads must use proof_version ${PROOF_V2}.` },
+      { status: 400 }
+    );
+  }
   if (typeof parsed !== "object" || Array.isArray(parsed) || !isValidMetadataShape(parsed as Record<string, unknown>)) {
     return Response.json({ error: "BAD_REQUEST", message: "Invalid metadata shape." }, { status: 400 });
   }
@@ -86,6 +115,11 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 }
     );
   }
+  const parsedSalts = parseUploadSalts(metadata.salts, metadata.tiles.length);
+  if ("error" in parsedSalts) {
+    return Response.json({ error: "BAD_REQUEST", message: parsedSalts.error }, { status: 400 });
+  }
+  const { salts } = parsedSalts;
 
   const pageBuffers: Buffer[] = [];
   for (let i = 0; i < metadata.page_count; i++) {
@@ -104,13 +138,14 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // --- Server-side hash re-verification (CLAUDE.md rule 4) ---
-  // Never trust metadata.client_hash / metadata.merkle_root directly:
-  // recompute both from the PNG bytes actually received and compare.
-  const serverComputed = await recomputeDocumentHashes(pageBuffers, metadata.grid_size);
+  // Never trust the submitted hashes: recompute the leaves, R and C from
+  // the PNG bytes actually received, with the submitted salts, and compare.
+  const serverComputed = await recomputeDocumentHashesV2(pageBuffers, metadata.grid_size, salts);
 
   if (
-    serverComputed.clientHash !== metadata.client_hash ||
-    serverComputed.merkleRoot !== metadata.merkle_root
+    serverComputed.fileHash !== metadata.client_hash ||
+    serverComputed.documentRoot !== metadata.merkle_root ||
+    serverComputed.commitment !== metadata.commitment
   ) {
     const submittedByIndex = new Map(metadata.tiles.map((t) => [t.tile_index, t.hash]));
     const mismatchedTileIndices = serverComputed.tiles
@@ -120,7 +155,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json(
       {
         error: "HASH_MISMATCH",
-        message: "Server-recomputed merkle_root/client_hash does not match submitted values.",
+        message: "Server-recomputed client_hash/merkle_root/commitment does not match submitted values.",
         mismatched_tile_indices: mismatchedTileIndices,
       },
       { status: 409 }
@@ -171,12 +206,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const timestamp = new Date();
-  const chainHash = await computeChainHash({
-    previousHash,
-    merkleRoot: serverComputed.merkleRoot,
-    versionNo,
-    timestamp,
-  });
+  const chainHash = chainHashV2({ previousHash, commitment: serverComputed.commitment, versionNo, timestamp });
 
   const storagePrefix = `${documentId}/v${versionNo}`;
   for (let i = 0; i < pageBuffers.length; i++) {
@@ -184,24 +214,31 @@ export async function POST(req: Request): Promise<Response> {
   }
   const storageUri = `s3://${process.env.MINIO_BUCKET ?? "digivault-evidence"}/${storagePrefix}/`;
 
-  let version = await prisma.documentVersion.create({
-    data: {
-      documentId,
-      versionNo,
-      merkleRoot: serverComputed.merkleRoot,
-      clientHash: serverComputed.clientHash,
-      storageUri,
-      previousHash,
-      chainHash,
-      gridSize: metadata.grid_size,
-      uploadedById: actor.userId,
-      status: "PROCESSING",
-      timestamp,
-    },
+  // The version and its salts are written together, or not at all.
+  let version = await prisma.$transaction(async (tx) => {
+    const created = await tx.documentVersion.create({
+      data: {
+        documentId: documentId!,
+        versionNo,
+        proofVersion: PROOF_V2,
+        merkleRoot: serverComputed.documentRoot,
+        commitment: serverComputed.commitment,
+        clientHash: serverComputed.fileHash,
+        storageUri,
+        previousHash,
+        chainHash,
+        gridSize: metadata.grid_size,
+        uploadedById: actor.userId,
+        status: "PROCESSING",
+        timestamp,
+      },
+    });
+    await storeVersionSalts(created.id, salts, saltKey, tx);
+    return created;
   });
 
   await prisma.document.update({ where: { id: documentId }, data: { currentVersionId: version.id } });
-  await replaceDocumentTiles(documentId, serverComputed.tiles);
+  await createVersionTiles(documentId, version.id, serverComputed.tiles);
 
   // Hashes verified, pages stored, tiles written: the version is READY.
   // Anchor state is tracked separately on AnchorLog, so an anchor failure
@@ -235,7 +272,7 @@ export async function POST(req: Request): Promise<Response> {
         pngBytes: pageBuffers[i],
       }))
     );
-    await persistSuggestionsAsFlags(documentId, suggestions);
+    await persistSuggestionsAsFlags(version.id, suggestions);
   } catch (err) {
     console.error(`[upload] ai-service call failed for version ${version.id}, continuing without suggestions:`, err);
   }
@@ -248,8 +285,10 @@ export async function POST(req: Request): Promise<Response> {
       status: version.status,
       anchor_status: "PENDING",
       grid_size: metadata.grid_size,
-      merkle_root: serverComputed.merkleRoot,
-      client_hash: serverComputed.clientHash,
+      proof_version: PROOF_V2,
+      merkle_root: serverComputed.documentRoot,
+      commitment: serverComputed.commitment,
+      client_hash: serverComputed.fileHash,
       storage_uri: storageUri,
       created_at: timestamp.toISOString(),
     },

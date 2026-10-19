@@ -13,6 +13,7 @@
 // Prereqs: seeded users, web app on E2E_BASE_URL, apps/ai-service running,
 // a reachable AMOY_RPC_URL and a funded deployer wallet.
 import { chromium } from "playwright";
+import sharp from "sharp";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -52,8 +53,63 @@ async function verifyInPortal(browser, pngPaths, proofPath) {
   const verdict = await verifyPage.locator(".result-card h2").textContent();
   const officialLabel = (await verifyPage.locator("text=Verified against official DigiVault contract").count()) > 0;
   const detail = await verifyPage.locator(".result-card p").last().textContent();
+  const text = await verifyPage.locator(".result-card").innerText();
   await anonCtx.close();
-  return { verdict, officialLabel, detail };
+  return { verdict, officialLabel, detail, text };
+}
+
+/** Rewrites a PNG with one pixel set to `rgba`. */
+async function withPixel(pngPath, x, y, rgba, outPath) {
+  const { data, info } = await sharp(pngPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  data.set(rgba, (y * info.width + x) * 4);
+  await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toFile(outPath);
+  return outPath;
+}
+
+function tileOrigin(proof, page, k) {
+  const p = proof.pages[page];
+  const tileW = Math.ceil(p.width / proof.gridSize);
+  const tileH = Math.ceil(p.height / proof.gridSize);
+  return { x: (k % proof.gridSize) * tileW + 1, y: Math.floor(k / proof.gridSize) * tileH + 1 };
+}
+
+/** The genuine redacted copy verifies against the original anchor; the three tamper cases fail, naming what changed. */
+async function checkRedactionProofInPortal(browser, pngPaths, proofPath, dir) {
+  const proof = JSON.parse(readFileSync(proofPath, "utf8"));
+  const pages = [...pngPaths].sort();
+  const out = {};
+
+  const genuine = await verifyInPortal(browser, pages, proofPath);
+  console.log("STEP: redaction proof (genuine) ->", genuine.verdict);
+  const masked = proof.pages[0].masked.length;
+  out.genuine_verifies = genuine.verdict.startsWith("Verified redacted copy") && genuine.officialLabel;
+  out.genuine_counts_tiles = genuine.text.includes(`${400 - masked} of 400 tiles on page 1 are byte-identical`) && genuine.text.includes(`${masked} masked`);
+
+  // Edit one unmasked pixel -> fail naming the tile.
+  const unmaskedK = Array.from({ length: 400 }, (_, k) => k).find((k) => !proof.pages[0].masked.includes(k) && k > 20);
+  const u = tileOrigin(proof, 0, unmaskedK);
+  const editedPng = await withPixel(pages[0], u.x, u.y, [1, 2, 3, 255], path.join(dir, "edited-page-0.png"));
+  const edited = await verifyInPortal(browser, [editedPng, ...pages.slice(1)], proofPath);
+  const name = `page 1 row ${Math.floor(unmaskedK / 20) + 1} col ${(unmaskedK % 20) + 1}`;
+  console.log("STEP: redaction proof (edited unmasked pixel) ->", edited.verdict, "|", edited.text.split("\n").find((l) => l.includes("differ")));
+  out.edited_pixel_fails_naming_tile = edited.verdict.startsWith("Mismatch") && edited.text.includes(name);
+
+  // Change a masked leaf in the proof -> fail.
+  const forged = JSON.parse(JSON.stringify(proof));
+  forged.pages[0].originalLeaves[forged.pages[0].masked[0]] = "00".repeat(32);
+  const forgedPath = path.join(dir, "forged-redaction-proof.json");
+  writeFileSync(forgedPath, JSON.stringify(forged));
+  const leaf = await verifyInPortal(browser, pages, forgedPath);
+  console.log("STEP: redaction proof (changed masked leaf) ->", leaf.verdict);
+  out.changed_masked_leaf_fails = leaf.verdict.startsWith("Mismatch") && leaf.text.includes("do not rebuild the original");
+
+  // Non-mask pixels inside a masked tile -> fail.
+  const m = tileOrigin(proof, 0, proof.pages[0].masked[0]);
+  const peekPng = await withPixel(pages[0], m.x, m.y, [220, 30, 30, 255], path.join(dir, "peek-page-0.png"));
+  const peek = await verifyInPortal(browser, [peekPng, ...pages.slice(1)], proofPath);
+  console.log("STEP: redaction proof (content inside a masked tile) ->", peek.verdict);
+  out.content_in_masked_tile_fails = peek.verdict.startsWith("Mismatch") && peek.text.includes("other than the solid mask colour");
+  return out;
 }
 
 async function main() {
@@ -89,9 +145,18 @@ async function main() {
     savedPaths.push(dest);
   }
   console.log("STEP: bundle saved to", downloadDir, savedPaths.map((p) => path.basename(p)));
+
+  // Redaction proof (Phase 3): its own download, never bundled with the original's proof.
+  const [redactionDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.click('button:has-text("Download redaction proof")'),
+  ]);
+  const redactionProofPath = path.join(downloadDir, redactionDownload.suggestedFilename());
+  await redactionDownload.saveAs(redactionProofPath);
+  console.log("STEP: redaction proof saved ->", path.basename(redactionProofPath));
   await officerCtx.close();
 
-  const proofPath = savedPaths.find((p) => p.endsWith(".json"));
+  const proofPath = savedPaths.find((p) => p.endsWith("verification-proof.json"));
   const pngPaths = savedPaths.filter((p) => p.endsWith(".png"));
 
   // --- Unauthenticated: genuine bundle must verify against the official contract ---
@@ -106,8 +171,12 @@ async function main() {
   const forgedResult = await verifyInPortal(browser, pngPaths, forgedPath);
   console.log("STEP: portal verdict (forged contract) ->", forgedResult.verdict);
 
+  // --- Unauthenticated: redaction proof against the ORIGINAL's anchor ---
+  const redaction = await checkRedactionProofInPortal(browser, pngPaths, redactionProofPath, downloadDir);
+
   await browser.close();
-  console.log(JSON.stringify({ genuine: genuine.verdict, forged: forgedResult.verdict, downloadDir }));
+  console.log(JSON.stringify({ genuine: genuine.verdict, forged: forgedResult.verdict, redaction, downloadDir }));
+  if (!Object.values(redaction).every(Boolean)) process.exit(1);
 
   if (!genuine.verdict.startsWith("Verified") || !genuine.officialLabel) {
     console.log("DETAIL:", genuine.detail);

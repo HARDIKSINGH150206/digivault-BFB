@@ -25,35 +25,37 @@ const ERROR_MESSAGES: Record<string, { title: string; detail: string }> = {
 const SHARE_CSS = `
 .sh { min-height: 100vh; display: flex; flex-direction: column; background: var(--ink); color: var(--paper); }
 .sh *, .sh *::before, .sh *::after { box-sizing: border-box; }
-.sh-header { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: rgba(10,10,10,0.8); border-bottom: 1px solid var(--line); }
-.sh-brand { font-family: var(--font-display); font-weight: 500; font-size: 19px; letter-spacing: -0.3px; line-height: 1.1; }
-.sh-brand-sub { font-size: 12.5px; color: var(--paper-3); }
-.sh-main { flex: 1; width: 100%; max-width: 680px; margin: 0 auto; padding: 36px 16px 48px; }
-.sh-notice { margin: 0 0 16px; padding: 11px 14px; border-radius: 10px; background: var(--ink-2); border: 1px solid var(--line-2); font-size: 14px; }
-.sh-card { background: var(--ink-2); border: 0; border-radius: 20px; padding: 24px; box-shadow: var(--shadow-card); }
-.sh-case { margin: 0 0 6px; font-size: 13.5px; font-weight: 500; color: var(--brand); }
-.sh-title { margin: 0; font-family: var(--font-display); font-size: 28px; font-weight: 500; letter-spacing: -0.8px; line-height: 1.2; }
+.sh a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.sh-header { height: 60px; display: flex; align-items: center; gap: 10px; padding: 0 24px; background: var(--ink); border-bottom: 1px solid var(--line-2); }
+.sh-brand { font-weight: 600; font-size: 15px; letter-spacing: -0.02em; line-height: 1.1; }
+.sh-brand-sub { margin-top: 2px; font-family: var(--font-mono), monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--paper-4); }
+.sh-main { flex: 1; width: 100%; max-width: 620px; margin: 0 auto; padding: 64px 16px 48px; }
+.sh-notice { margin: 0 0 16px; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--line-2); font-size: 14px; color: var(--paper-2); }
+.sh-card { border: 1px solid var(--line-2); border-radius: 12px; padding: 28px; }
+.sh-case { margin: 0 0 12px; font-family: var(--font-mono), monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--paper-4); }
+.sh-title { margin: 0; font-size: 28px; font-weight: 500; letter-spacing: -0.025em; line-height: 1.2; }
 .sh-meta { margin: 8px 0 0; font-size: 14.5px; color: var(--paper-3); }
-.sh-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; padding: 4px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 500; border: 1px solid; }
-.sh-chip-ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
-.sh-chip-warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
-.sh-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 18px; row-gap: 10px; margin: 18px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; }
-.sh-dl dt { color: var(--paper-3); }
-.sh-dl dd { margin: 0; overflow-wrap: anywhere; }
+.sh-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-top: 18px; padding: 0 9px; border-radius: 6px; font-size: 12.5px; font-weight: 500; border: 1px solid var(--line-2); color: var(--paper-2); }
+.sh-chip::before { content: attr(data-none); width: 6px; height: 6px; border-radius: 50%; background: var(--chip); }
+.sh-chip-ok { --chip: var(--ok); }
+.sh-chip-warn { --chip: var(--warn); }
+.sh-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 24px; row-gap: 0; margin: 22px 0 0; font-size: 14px; }
+.sh-dl dt, .sh-dl dd { padding: 11px 0; border-top: 1px solid var(--line); }
+.sh-dl dt { color: var(--paper-4); }
+.sh-dl dd { margin: 0; overflow-wrap: anywhere; color: var(--paper-2); }
 .sh-code { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-.sh-dl a { color: var(--brand); text-decoration: none; }
-.sh-dl a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.sh-primary { display: flex; align-items: center; justify-content: center; gap: 8px; height: 46px; margin-top: 20px; border-radius: 999px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-lift);
-  font-size: 15px; font-weight: 500; text-decoration: none; }
-.sh-primary:hover { background: #ffffff; }
-.sh-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ink-2), 0 0 0 4px var(--brand); }
+.sh-dl a { color: var(--paper); text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; }
+.sh-dl a:hover { text-decoration-color: var(--paper); }
+.sh-primary { display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; margin-top: 22px; border: 1px solid var(--paper); border-radius: 10px; background: var(--paper); color: var(--ink);
+  font-size: 15px; font-weight: 500; text-decoration: none; transition: background-color 120ms ease; }
+.sh-primary:hover { background: #ffffff; border-color: #ffffff; }
 .sh-help { margin: 16px 0 0; font-size: 14px; color: var(--paper-3); line-height: 1.55; }
-.sh-help a { color: var(--paper); font-weight: 500; text-decoration: none; }
-.sh-help a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.sh-error { text-align: center; padding: 36px 24px; }
-.sh-error-icon { width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 50%; display: grid; place-items: center; background: var(--danger-soft); color: var(--danger); }
+.sh-help a { color: var(--paper); font-weight: 500; text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; }
+.sh-help a:hover { text-decoration-color: var(--paper); }
+.sh-error { text-align: center; padding: 40px 24px; }
+.sh-error-icon { width: 44px; height: 44px; margin: 0 auto 16px; border-radius: 10px; display: grid; place-items: center; border: 1px solid var(--danger-line); color: var(--danger); }
 .sh-footer { padding: 20px 16px 28px; text-align: center; font-size: 12.5px; color: var(--paper-4); }
-@media (max-width: 560px) { .sh-dl { grid-template-columns: minmax(0, 1fr); row-gap: 2px; } .sh-dl dd { margin-bottom: 8px; } }
+@media (max-width: 560px) { .sh-main { padding-top: 40px; } .sh-card { padding: 22px; } .sh-dl { grid-template-columns: minmax(0, 1fr); } .sh-dl dd { border-top: 0; padding-top: 0; } }
 `;
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -122,9 +124,9 @@ export default async function SharedDocumentPage({ params }: { params: { token: 
               <dd>{version.versionNo} (redacted)</dd>
               <dt>Created</dt>
               <dd>{formatDate(version.timestamp)}</dd>
-              <dt>Merkle root</dt>
+              <dt>Anchored commitment</dt>
               <dd>
-                <code className="sh-code" title={version.merkleRoot}>{shortHash(version.merkleRoot)}</code>
+                <code className="sh-code" title={version.commitment}>{shortHash(version.commitment)}</code>
               </dd>
               {version.polygonTxHash && (
                 <>

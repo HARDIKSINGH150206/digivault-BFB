@@ -2,8 +2,10 @@
 // Division cases and nine case documents.
 //
 // Documents go through the real pipeline, not straight into the database:
-// each page is rendered as a lossless PNG, hashed exactly like the server
-// (20x20 tiles, raw RGBA pixels, SHA-256 Merkle tree) and uploaded to
+// each page is rendered as a lossless PNG, hashed exactly like the browser
+// does (proof format v2: 20x20 tiles, raw RGBA pixels, random per-tile
+// salts, RFC 6962 trees, commitment C — via the independent reference in
+// packages/crypto-core/reference/dv2-ref.mjs) and uploaded to
 // POST /api/v1/evidence/upload. So every document has real page images in
 // MinIO, real tile hashes, a real hash chain, AI redaction suggestions (if
 // apps/ai-service is running) and a real Polygon Amoy anchor (if the
@@ -21,10 +23,11 @@
 // Run from apps/web:
 //   node --experimental-strip-types prisma/seed-demo.ts
 
-import { createHash } from "node:crypto";
 import bcrypt from "bcryptjs";
 import sharp from "sharp";
 import { PrismaClient, type Role } from "@prisma/client";
+// @ts-expect-error — untyped .mjs reference implementation
+import { computeDocument, randomSalts } from "../../../packages/crypto-core/reference/dv2-ref.mjs";
 
 const prisma = new PrismaClient();
 const BASE = process.env.DEMO_BASE_URL ?? "http://localhost:3000";
@@ -430,10 +433,6 @@ async function renderPage(lines: string[], caseNumber: string, pageNo: number, p
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-function sha256(buf: Uint8Array): Buffer {
-  return createHash("sha256").update(buf).digest();
-}
-
 interface TileMeta {
   tile_index: number;
   page_index: number;
@@ -442,56 +441,9 @@ interface TileMeta {
   hash: string;
 }
 
-async function hashPageTiles(png: Buffer, pageIndex: number): Promise<TileMeta[]> {
+async function decodePage(png: Buffer) {
   const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const tileW = Math.ceil(info.width / GRID_SIZE);
-  const tileH = Math.ceil(info.height / GRID_SIZE);
-  const tiles: TileMeta[] = [];
-  for (let row = 0; row < GRID_SIZE; row++) {
-    for (let col = 0; col < GRID_SIZE; col++) {
-      const x = col * tileW;
-      const y = row * tileH;
-      const w = Math.min(tileW, info.width - x);
-      const h = Math.min(tileH, info.height - y);
-      const out = Buffer.alloc(Math.max(w, 0) * Math.max(h, 0) * 4);
-      for (let r = 0; r < h; r++) {
-        const src = ((y + r) * info.width + x) * 4;
-        data.copy(out, r * w * 4, src, src + w * 4);
-      }
-      tiles.push({
-        tile_index: pageIndex * GRID_SIZE ** 2 + row * GRID_SIZE + col,
-        page_index: pageIndex,
-        row,
-        col,
-        hash: sha256(out).toString("hex"),
-      });
-    }
-  }
-  return tiles;
-}
-
-// merkletreejs with sortPairs:false: an odd node at the end of a level is
-// carried up unchanged, not duplicated.
-function merkleRoot(leafHexes: string[]): string {
-  let level: Buffer[] = leafHexes.map((h) => Buffer.from(h, "hex"));
-  while (level.length > 1) {
-    const next: Buffer[] = [];
-    let i = 0;
-    for (; i + 1 < level.length; i += 2) next.push(sha256(Buffer.concat([level[i], level[i + 1]])));
-    if (i < level.length) next.push(level[i]);
-    level = next;
-  }
-  return level[0].toString("hex");
-}
-
-function clientHash(pngs: Buffer[]): string {
-  const parts: Buffer[] = [];
-  for (const png of pngs) {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(png.byteLength, 0);
-    parts.push(len, png);
-  }
-  return sha256(Buffer.concat(parts)).toString("hex");
+  return { rgba: data, width: info.width, height: info.height };
 }
 
 // --- API helpers ----------------------------------------------------------------------
@@ -517,8 +469,15 @@ async function login(user: DemoUser): Promise<string> {
 async function uploadDocument(token: string, caseId: string, caseNumber: string, doc: DemoDocument) {
   const pngs: Buffer[] = [];
   for (let i = 0; i < doc.pages.length; i++) pngs.push(await renderPage(doc.pages[i], caseNumber, i + 1, doc.pages.length));
-  const tiles: TileMeta[] = [];
-  for (let i = 0; i < pngs.length; i++) tiles.push(...(await hashPageTiles(pngs[i], i)));
+  const decoded = [];
+  for (const png of pngs) decoded.push(await decodePage(png));
+  const salts: Buffer[] = randomSalts(pngs.length * GRID_SIZE * GRID_SIZE);
+  const hashed: { fileHash: string; documentRoot: string; commitment: string; tiles: TileMeta[] } = computeDocument(
+    decoded,
+    pngs,
+    GRID_SIZE,
+    salts
+  );
 
   const metadata = {
     case_id: caseId,
@@ -526,11 +485,14 @@ async function uploadDocument(token: string, caseId: string, caseNumber: string,
     title: doc.title,
     doc_type: doc.docType,
     source_type: "NATIVE_PDF",
+    proof_version: 2,
     grid_size: GRID_SIZE,
     page_count: pngs.length,
-    client_hash: clientHash(pngs),
-    merkle_root: merkleRoot(tiles.map((t) => t.hash)),
-    tiles,
+    client_hash: hashed.fileHash,
+    merkle_root: hashed.documentRoot,
+    commitment: hashed.commitment,
+    salts: salts.map((b) => b.toString("hex")),
+    tiles: hashed.tiles,
     pages: pngs.map((_, i) => ({ page_index: i, width_px: PAGE_W, height_px: PAGE_H })),
   };
   const form = new FormData();

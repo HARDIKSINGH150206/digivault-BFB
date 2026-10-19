@@ -1,14 +1,15 @@
-// Manual API-level smoke test, deliberately reimplementing the
-// tile-hash/Merkle algorithm independently (plain Node crypto, not
-// importing @digivault/crypto-core) so this is a real cross-check against
-// docs/03-crypto-and-merkle-spec.md rather than a tautological "same code
-// testing itself" comparison. Also covers login, RBAC, step-up, automatic
-// anchoring and redacted-only sharing. Not wired into any test runner.
+// Manual API-level smoke test. Hashing uses the independent reference
+// implementation of proof format v2 (packages/crypto-core/reference/
+// dv2-ref.mjs: plain node:crypto, bottom-up tree — not the TypeScript code
+// the app runs), so a pass is a real cross-check against docs/03 §v2
+// rather than "same code testing itself". Also covers login, RBAC,
+// step-up, automatic anchoring, v2 proofs and redacted-only sharing. Not
+// wired into any test runner.
 //
 // Prereqs: `node prisma/seed-for-testing.mjs`, web app on E2E_BASE_URL
 // (default http://localhost:3000). No arguments.
 import sharp from "sharp";
-import { createHash } from "node:crypto";
+import { computeDocument, randomSalts, verifyRedactionProof } from "../../../packages/crypto-core/reference/dv2-ref.mjs";
 
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const INVESTIGATOR = { serviceNumber: "DL/2019/3301", pin: "223344" };
@@ -16,26 +17,9 @@ const COURT_OFFICIAL = { serviceNumber: "MH/2020/5512", pin: "334455" };
 const GRID_SIZE = 20;
 const SIZE = 400; // -> exactly 20x20 px tiles, no edge clamping
 
-function sha256hex(buf) {
-  return createHash("sha256").update(buf).digest("hex");
-}
-
-// Matches merkletreejs's actual odd-node behavior (verified directly
-// against the library, not assumed): a leftover node at an odd-length
-// level carries up UNCHANGED to the next level instead of being duplicated
-// and re-hashed with itself.
-function buildMerkleRoot(leafHexes) {
-  let level = leafHexes.map((h) => Buffer.from(h, "hex"));
-  while (level.length > 1) {
-    const next = [];
-    let i = 0;
-    for (; i + 1 < level.length; i += 2) {
-      next.push(createHash("sha256").update(Buffer.concat([level[i], level[i + 1]])).digest());
-    }
-    if (i < level.length) next.push(level[i]);
-    level = next;
-  }
-  return level[0].toString("hex");
+async function decode(png) {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  return { rgba: data, width: info.width, height: info.height };
 }
 
 async function buildTestPage() {
@@ -49,26 +33,16 @@ async function buildTestPage() {
     .png()
     .toBuffer();
 
-  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const tileSize = SIZE / GRID_SIZE;
-  const tiles = [];
-  for (let row = 0; row < GRID_SIZE; row++) {
-    for (let col = 0; col < GRID_SIZE; col++) {
-      const out = Buffer.alloc(tileSize * tileSize * 4);
-      for (let r = 0; r < tileSize; r++) {
-        const srcOffset = ((row * tileSize + r) * info.width + col * tileSize) * 4;
-        data.copy(out, r * tileSize * 4, srcOffset, srcOffset + tileSize * 4);
-      }
-      tiles.push({ tile_index: row * GRID_SIZE + col, page_index: 0, row, col, hash: sha256hex(out) });
-    }
-  }
-  const clientHashInput = Buffer.concat([Buffer.alloc(4), png]); // length-prefix(0) + only page
-  const lenBuf = Buffer.alloc(4);
-  lenBuf.writeUInt32BE(png.byteLength, 0);
-  const clientHash = sha256hex(Buffer.concat([lenBuf, png]));
-  const merkleRoot = buildMerkleRoot(tiles.map((t) => t.hash));
-
-  return { png, tiles, clientHash, merkleRoot };
+  const salts = randomSalts(GRID_SIZE * GRID_SIZE);
+  const r = computeDocument([await decode(png)], [png], GRID_SIZE, salts);
+  return {
+    png,
+    salts: salts.map((b) => b.toString("hex")),
+    tiles: r.tiles,
+    clientHash: r.fileHash,
+    merkleRoot: r.documentRoot,
+    commitment: r.commitment,
+  };
 }
 
 async function postJson(path, body, headers = {}) {
@@ -124,17 +98,20 @@ async function tamperOnePixelTile(png) {
     .toBuffer();
 }
 
-function buildUploadForm({ png, tiles, clientHash, merkleRoot, caseId, tamper }) {
+function buildUploadForm({ png, tiles, clientHash, merkleRoot, commitment, salts, caseId, tamper, proofVersion = 2 }) {
   const metadata = {
     case_id: caseId,
     document_id: null,
     title: "Smoke Test FIR",
     doc_type: "FIR",
     source_type: "NATIVE_PDF",
+    proof_version: proofVersion,
     grid_size: GRID_SIZE,
     page_count: 1,
     client_hash: tamper === "client_hash" ? "0".repeat(64) : clientHash,
     merkle_root: tamper === "merkle_root" ? "0".repeat(64) : merkleRoot,
+    commitment: tamper === "commitment" ? "0".repeat(64) : commitment,
+    salts: tamper === "salts_repeated" ? salts.map(() => salts[0]) : salts,
     tiles,
     pages: [{ page_index: 0, width_px: SIZE, height_px: SIZE }],
   };
@@ -187,6 +164,21 @@ async function main() {
     results.tampered_merkle_root_rejected = res.status === 409 && body.error === "HASH_MISMATCH";
   }
 
+  // 2b. v2 specifics: a tampered commitment -> 409; repeated salts and a
+  // legacy v1 upload -> 400 (ADR-018, ADR-021).
+  {
+    const upload = (opts) =>
+      fetch(`${BASE}/api/v1/evidence/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${investigatorToken}` },
+        body: buildUploadForm({ ...testPage, caseId, ...opts }),
+      });
+    const tamperedC = await upload({ tamper: "commitment" });
+    results.tampered_commitment_rejected = tamperedC.status === 409 && (await tamperedC.json()).error === "HASH_MISMATCH";
+    results.repeated_salts_rejected_400 = (await upload({ tamper: "salts_repeated" })).status === 400;
+    results.v1_upload_rejected_400 = (await upload({ proofVersion: 1 })).status === 400;
+  }
+
   // 3. Real pixel tamper in one tile, submitted with the PRE-tamper hashes
   // (the actual attack rule 4 defends against) -> 409, and that specific
   // tile_index (row=3,col=3 -> index 63) is named in the mismatch list.
@@ -214,6 +206,7 @@ async function main() {
     const body = await res.json();
     results.legit_upload_201 = res.status === 201;
     results.legit_upload_merkle_root_matches = body.merkle_root === testPage.merkleRoot;
+    results.legit_upload_commitment_matches = body.commitment === testPage.commitment && body.proof_version === 2;
     versionId = body.document_version_id;
     documentId = body.document_id;
   }
@@ -224,6 +217,24 @@ async function main() {
     results.auto_anchor_settled = anchor !== null;
     results.auto_anchor_status = anchor?.status ?? "TIMEOUT";
     results.auto_anchor_ok = anchor?.status === "ANCHORED";
+  }
+
+  // 5b. The v2 proof recomputes, with the reference implementation, to the
+  // commitment that was anchored. Needs the anchor, so informational if not.
+  let originalProof = null;
+  {
+    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${versionId}/proof`, {
+      headers: { Authorization: `Bearer ${courtToken}` },
+    });
+    if (res.status === 200) {
+      originalProof = await res.json();
+      const salts = originalProof.tiles.map((t) => Buffer.from(t.salt, "hex"));
+      const r = computeDocument([await decode(testPage.png)], [testPage.png], GRID_SIZE, salts);
+      results.proof_v2_recomputes_to_commitment =
+        originalProof.digivault_proof_version === 2 && r.commitment === originalProof.commitment && r.commitment === testPage.commitment;
+    } else {
+      results.proof_v2_recomputes_to_commitment = `not checked (proof ${res.status}: version not anchored)`;
+    }
   }
 
   // 6. Sharing before any redaction -> 403 (F-03).
@@ -247,6 +258,7 @@ async function main() {
     const { res, body } = await postJson(path, { confirmed_tile_indices: [0] }, { ...auth, "X-StepUp-Token": stepUp });
     results.confirm_redaction_201 = res.status === 201;
     results.confirm_redaction_new_root_differs = body.merkle_root !== testPage.merkleRoot;
+    results.confirm_redaction_is_v2 = body.proof_version === 2 && body.commitment !== testPage.commitment;
     redactedVersionId = body.document_version_id;
   }
 
@@ -269,9 +281,59 @@ async function main() {
     results.redacted_auto_anchor_status = anchor?.status ?? "TIMEOUT";
   }
 
+  // 10. The redacted version's proof uses fresh salts: the masked tile's
+  // original salt (tile 0) appears nowhere in it (ADR-018).
+  {
+    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${redactedVersionId}/proof`, {
+      headers: { Authorization: `Bearer ${courtToken}` },
+    });
+    if (res.status === 200) {
+      const proof = await res.json();
+      const leaked = new Set(proof.tiles.map((t) => t.salt));
+      results.redacted_proof_has_no_original_salts = testPage.salts.every((s) => !leaked.has(s));
+    } else {
+      results.redacted_proof_has_no_original_salts = `not checked (proof ${res.status}: version not anchored)`;
+    }
+  }
+
+  // 11. Redaction proof (docs/03 §Redaction proofs): the redacted page plus
+  // the proof rebuild the ORIGINAL's commitment (checked with the reference
+  // verifier), only tile 0 is masked, and its original salt is withheld.
+  {
+    const unredacted = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${versionId}/redaction-proof`, {
+      headers: { Authorization: `Bearer ${courtToken}` },
+    });
+    results.redaction_proof_refused_for_unredacted_400 = unredacted.status === 400;
+
+    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${redactedVersionId}/redaction-proof`, {
+      headers: { Authorization: `Bearer ${courtToken}` },
+    });
+    if (res.status === 200) {
+      const proof = await res.json();
+      const pageRes = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${redactedVersionId}/pages/0`, {
+        headers: { Authorization: `Bearer ${courtToken}` },
+      });
+      const png = Buffer.from(await pageRes.arrayBuffer());
+      const check = verifyRedactionProof(proof, [await decode(png)], [png]);
+      results.redaction_proof_verifies_against_original =
+        check.problems.length === 0 && check.originalCommitment === testPage.commitment && proof.original.versionId === versionId;
+      results.redaction_proof_masks_only_tile_0 = JSON.stringify(proof.pages[0].masked) === "[0]";
+      const revealed = new Map(proof.pages[0].revealedSalts.map((s) => [s.k, s.salt]));
+      results.redaction_proof_withholds_masked_salt =
+        !revealed.has(0) && !JSON.stringify(proof).includes(testPage.salts[0]) && testPage.salts.slice(1).every((s, i) => revealed.get(i + 1) === s);
+    } else {
+      results.redaction_proof_verifies_against_original = `not checked (redaction proof ${res.status}: version not anchored)`;
+    }
+  }
+
   console.log(JSON.stringify(results, null, 2));
   // Anchor outcomes depend on the RPC being reachable: reported, not asserted.
-  const informational = new Set(["auto_anchor_status", "auto_anchor_ok", "redacted_auto_anchor_status"]);
+  const informational = new Set([
+    "auto_anchor_status",
+    "auto_anchor_ok",
+    "redacted_auto_anchor_status",
+    ...Object.keys(results).filter((k) => typeof results[k] === "string" && results[k].startsWith("not checked")),
+  ]);
   const allPassed = Object.entries(results).every(([k, v]) => informational.has(k) || Boolean(v));
   console.log(allPassed ? "\nSMOKE TEST PASSED" : "\nSMOKE TEST FAILED");
   process.exit(allPassed ? 0 : 1);

@@ -35,7 +35,7 @@ export function ActivityPanel({ rows, loading, showCase = true }: { rows: Activi
                   <td className="ws-muted" title={formatDateTime(row.at)}>{activityTime(row.at)}</td>
                   <td>
                     <span className="ws-action">
-                      <span style={{ color: row.kind === "anchor" ? "var(--ok)" : "var(--brand)", display: "flex" }}>
+                      <span style={{ color: row.kind === "anchor" ? "var(--ok)" : "var(--paper-4)", display: "flex" }}>
                         <Icon name={row.kind === "case" ? "folder" : row.kind === "upload" ? "upload" : row.kind === "version" ? "version" : "anchor"} size={18} />
                       </span>
                       {row.action}

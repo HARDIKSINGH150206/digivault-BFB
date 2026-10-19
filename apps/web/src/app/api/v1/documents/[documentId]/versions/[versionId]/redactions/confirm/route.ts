@@ -3,9 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { requireStepUp } from "@/lib/step-up";
 import { getPagePng, putPagePng } from "@/lib/storage";
-import { redactPagePng, recomputeDocumentHashes } from "@/lib/server-hash";
-import { computeChainHash } from "@/lib/chain-hash";
-import { replaceDocumentTiles } from "@/lib/tiles-repo";
+import { chainHashV2 } from "@digivault/crypto-core";
+import { redactPagePng, recomputeDocumentHashesV2 } from "@/lib/server-hash";
+import { createVersionTiles, getVersionTiles, TileBackfillError } from "@/lib/tiles-repo";
+import { generateTileSalts, saltKeyFromEnv, storeVersionSalts, type SaltKey } from "@/lib/tile-salts";
+import { PROOF_V2 } from "@/lib/proof-v2";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { anchorVersionInBackground } from "@/lib/anchor";
 
@@ -20,6 +22,10 @@ interface ConfirmBody {
 // redacts silently. The redacted version's merkle_root is ALWAYS computed
 // server-side from the server's own redacted PNGs, never from a
 // client-submitted root, mirroring CLAUDE.md rule 4 for this step too.
+// The redacted version is always v2 (ADR-021), whatever the prior version
+// was, with FRESH server-generated salts: reusing the prior version's salts
+// would hand a masked tile's original salt to anyone given the redacted
+// version's proof (ADR-018).
 export async function POST(
   req: Request,
   { params }: { params: { documentId: string; versionId: string } }
@@ -33,6 +39,17 @@ export async function POST(
     throw err;
   }
 
+  let saltKey: SaltKey;
+  try {
+    saltKey = saltKeyFromEnv();
+  } catch (err) {
+    console.error("[confirm] salt encryption key unavailable:", err);
+    return Response.json(
+      { error: "SERVER_MISCONFIGURED", message: "Redaction is disabled: the salt encryption key is not configured." },
+      { status: 503 }
+    );
+  }
+
   const body = (await req.json()) as ConfirmBody;
   const { documentId, versionId } = params;
 
@@ -41,9 +58,17 @@ export async function POST(
     return Response.json({ error: "NOT_FOUND", message: "Document version not found." }, { status: 404 });
   }
 
-  const tiles = await prisma.tile.findMany({
-    where: { documentId, tileIndex: { in: body.confirmed_tile_indices } },
-  });
+  let priorTiles;
+  try {
+    priorTiles = await getVersionTiles(priorVersion);
+  } catch (err) {
+    if (err instanceof TileBackfillError) {
+      return Response.json({ error: "INTEGRITY_ERROR", message: err.message }, { status: 409 });
+    }
+    throw err;
+  }
+  const confirmed = new Set(body.confirmed_tile_indices);
+  const tiles = priorTiles.filter((t) => confirmed.has(t.tileIndex));
   if (tiles.length !== body.confirmed_tile_indices.length) {
     return Response.json(
       { error: "BAD_REQUEST", message: "One or more confirmed_tile_indices don't exist on this document." },
@@ -60,12 +85,7 @@ export async function POST(
 
   const gridSize = priorVersion.gridSize;
   const pageCount = Math.max(...tiles.map((t) => t.pageIndex), 0) + 1; // lower bound; refined below
-  const allPageIndices = await prisma.tile.findMany({
-    where: { documentId },
-    distinct: ["pageIndex"],
-    select: { pageIndex: true },
-  });
-  const totalPages = allPageIndices.length || pageCount;
+  const totalPages = new Set(priorTiles.map((t) => t.pageIndex)).size || pageCount;
 
   const redactedBuffers: Buffer[] = [];
   for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
@@ -74,16 +94,12 @@ export async function POST(
     redactedBuffers.push(masks.length > 0 ? await redactPagePng(original, gridSize, masks) : original);
   }
 
-  const serverComputed = await recomputeDocumentHashes(redactedBuffers, gridSize);
+  const salts = generateTileSalts(redactedBuffers.length * gridSize * gridSize);
+  const serverComputed = await recomputeDocumentHashesV2(redactedBuffers, gridSize, salts);
 
   const versionNo = priorVersion.versionNo + 1;
   const timestamp = new Date();
-  const chainHash = await computeChainHash({
-    previousHash: priorVersion.chainHash,
-    merkleRoot: serverComputed.merkleRoot,
-    versionNo,
-    timestamp,
-  });
+  const chainHash = chainHashV2({ previousHash: priorVersion.chainHash, commitment: serverComputed.commitment, versionNo, timestamp });
 
   const storagePrefix = `${documentId}/v${versionNo}`;
   for (let i = 0; i < redactedBuffers.length; i++) {
@@ -91,29 +107,35 @@ export async function POST(
   }
   const storageUri = `s3://${process.env.MINIO_BUCKET ?? "digivault-evidence"}/${storagePrefix}/`;
 
-  let newVersion = await prisma.documentVersion.create({
-    data: {
-      documentId,
-      versionNo,
-      merkleRoot: serverComputed.merkleRoot,
-      clientHash: serverComputed.clientHash,
-      storageUri,
-      previousHash: priorVersion.chainHash,
-      chainHash,
-      gridSize,
-      uploadedById: actor.userId,
-      status: "PROCESSING",
-      timestamp,
-    },
+  let newVersion = await prisma.$transaction(async (tx) => {
+    const created = await tx.documentVersion.create({
+      data: {
+        documentId,
+        versionNo,
+        proofVersion: PROOF_V2,
+        merkleRoot: serverComputed.documentRoot,
+        commitment: serverComputed.commitment,
+        clientHash: serverComputed.fileHash,
+        storageUri,
+        previousHash: priorVersion.chainHash,
+        chainHash,
+        gridSize,
+        uploadedById: actor.userId,
+        status: "PROCESSING",
+        timestamp,
+      },
+    });
+    await storeVersionSalts(created.id, salts, saltKey, tx);
+    return created;
   });
 
-  await replaceDocumentTiles(documentId, serverComputed.tiles);
+  await createVersionTiles(documentId, newVersion.id, serverComputed.tiles);
 
-  // The old RedactionFlag rows were deleted by replaceDocumentTiles along
-  // with the old Tile rows (see lib/tiles-repo.ts) — recreate confirmed
-  // ones against the new Tile rows so `masked: true` survives the version bump.
+  // The prior version keeps its own tiles and AI suggestion flags (ADR-024);
+  // the new version gets officer-confirmed flags on its own tiles so
+  // `masked: true` is visible on the redacted version.
   const newTiles = await prisma.tile.findMany({
-    where: { documentId, tileIndex: { in: body.confirmed_tile_indices } },
+    where: { documentVersionId: newVersion.id, tileIndex: { in: body.confirmed_tile_indices } },
   });
   await prisma.redactionFlag.createMany({
     data: newTiles.map((t) => ({
@@ -167,7 +189,9 @@ export async function POST(
       version_no: versionNo,
       previous_hash: priorVersion.chainHash,
       chain_hash: chainHash,
-      merkle_root: serverComputed.merkleRoot,
+      proof_version: PROOF_V2,
+      merkle_root: serverComputed.documentRoot,
+      commitment: serverComputed.commitment,
       status: newVersion.status,
       anchor_status: "PENDING",
       redacted_tile_count: body.confirmed_tile_indices.length,
