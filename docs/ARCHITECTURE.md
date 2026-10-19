@@ -16,7 +16,7 @@ Sections marked **(v2)** describe planned state; everything else is current code
 ```
                     ┌──────────────────────── Officer's browser ────────────────────────┐
                     │ Next.js pages  +  packages/crypto-core                            │
-                    │ PDF.js → PNG pages → 20×20 tiles → SHA-256 leaves → Merkle root   │
+                    │ PDF.js → PNG pages → 20×20 salted leaves → RFC 6962 → commitment C│
                     └───────────────┬───────────────────────────────────────────────────┘
                                     │ REST, Bearer session token (+ X-StepUp-Token)
                                     ▼
@@ -52,10 +52,10 @@ Sections marked **(v2)** describe planned state; everything else is current code
 ## 3. Key flows
 
 ### 3.1 Upload (CLAUDE.md rule 4)
-1. Browser renders each page (scale 2.0) to lossless PNG, computes `clientHash`, tile hashes and Merkle root.
-2. `POST /api/v1/evidence/upload` with PNGs + metadata.
-3. Server decodes PNGs with `sharp`, recomputes every tile hash and the root; any mismatch → `409 HASH_MISMATCH`.
-4. Stores PNGs in MinIO, version + tiles in Postgres, computes `chainHash`, writes audit row.
+1. Browser renders each page (scale 2.0) to lossless PNG, generates one random salt per tile, computes `clientHash`, salted leaves, page roots, document root `R` and commitment `C` (proof format v2, `docs/03`).
+2. `POST /api/v1/evidence/upload` with PNGs + metadata + salts.
+3. Server decodes PNGs with `sharp`, recomputes every leaf, `R` and `C` with the submitted salts; any mismatch → `409 HASH_MISMATCH`.
+4. Stores PNGs in MinIO; version, encrypted salts (one transaction) and tiles in Postgres; computes `chainHash`; writes audit row.
 5. Queues background anchoring; returns immediately.
 
 ### 3.2 Redaction (rule 2)
@@ -92,11 +92,9 @@ User ─┬─< Case ─< Document ─< DocumentVersion ─< AnchorLog
       └─< AuditLog                                         (insert-only for digivault_app)
 ```
 
-Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, gridSize, isRedacted, status}`; `Tile.{documentVersionId, tileIndex, pageIndex, row, col, tileHash}`; `RedactionFlag.{entityType, confidenceScore, source, masked, reviewedBy}`; `AuditLog.{seq, prevHash, entryHash}`; `AnchorLog.{status, polygonTxHash, submittedTxHash, objectLockUri}`; `Case.{firRegisteredAt, offenceSections}`.
+Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C, v2 only), clientHash, previousHash, chainHash, gridSize, isRedacted, status}`; `Tile.{documentVersionId, tileIndex, pageIndex, row, col, tileHash}`; `RedactionFlag.{entityType, confidenceScore, source, masked, reviewedBy}`; `AuditLog.{seq, prevHash, entryHash}`; `AnchorLog.{status, polygonTxHash, submittedTxHash, objectLockUri}`; `Case.{firRegisteredAt, offenceSections}`.
 
-`VersionSaltSet.{documentVersionId, tileCount, keyId, iv, ciphertext, authTag}` — encrypted per-tile salts, insert-only for the app role (ADR-018; populated from Phase 1).
-
-**(v2) still to add:** `DocumentVersion.commitment` (Phase 1).
+`VersionSaltSet.{documentVersionId, tileCount, keyId, iv, ciphertext, authTag}` — encrypted per-tile salts, insert-only for the app role (ADR-018), one per v2 version.
 
 ## 5. Trust boundaries
 
@@ -118,8 +116,8 @@ Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, g
 | Corrupt admin with DB access | Rewrite tile hashes / roots in Postgres | Anchors on chain; `/verify` never reads DB | ✅ |
 | Corrupt admin with DB owner role | Edit or delete audit rows | Audit hash chain (✅ P0.4) + anchored heads (🔜 Phase 4) | partial |
 | Malicious proof author | Point verifier at their own contract | Contract/chain/anchorer hardcoded (F-02) | ✅ |
-| Proof forger | Second-preimage via inner-node-as-leaf / duplicated leaf | RFC 6962 domain separation, no duplication | 🔜 v2 Phase 1 |
-| Curious recipient of redacted copy | Brute-force masked tile content from its hash | Per-tile 32-byte salts | 🔜 v2 Phase 1 |
+| Proof forger | Second-preimage via inner-node-as-leaf / duplicated leaf | RFC 6962 domain separation, no duplication; size fixed by the grid (ADR-027) | ✅ v2 (Phase 1); v1 legacy read-only |
+| Curious recipient of redacted copy | Brute-force masked tile content from its hash | Per-tile 32-byte salts; redacted versions get fresh salts | ✅ salts (Phase 1); redaction proofs Phase 3 |
 | Redactor | Show fabricated content inside a "masked" tile | Verifier checks masked tiles are solid mask colour | 🔜 v2 Phase 3 |
 | Share-link holder | Get the unredacted original | Shares serve only redacted versions (F-03) | ✅ |
 | Signing-key thief | Anchor forged commitments | Contract v2 anchorer revocation, owner rotation; HSM roadmap | 🔜 v2 Phase 2 |
@@ -137,7 +135,8 @@ Key fields: `DocumentVersion.{merkleRoot, clientHash, previousHash, chainHash, g
 | Anchor records written before P0.2 are in the unlocked evidence bucket | Only newer anchors are WORM-protected in MinIO | — (on-chain anchor still covers them) |
 | Audit chain not yet anchored externally | DB owner can rewrite the whole chain consistently | v2 Phase 4 |
 | 261 audit rows predate the chain (`seq` NULL) | Covered by the anchored `AUDIT_LEGACY_GENESIS` digest (ADR-026), not by per-row links | done |
-| `chainHash` concatenates fields without separators | Theoretical input ambiguity | v2 Phase 1 |
-| Merkle tree has no leaf/inner-node domain separation | Proof-forgery ambiguity (`docs/03`) | v2 Phase 1 |
+| v1 `chainHash` concatenates fields without separators | Theoretical input ambiguity, legacy versions only | done for new versions (v2 chain hash, Phase 1) |
+| v1 Merkle tree has no leaf/inner-node domain separation | Proof-forgery ambiguity, legacy versions only (`docs/03`) | done for new versions (v2, Phase 1) |
+| v2 commitments are anchored on the v1 contract | Anchorer can't be rotated or revoked yet | v2 Phase 2 |
 | Anchor signing key read from `packages/contracts/.env` | Key on disk | Contract v2 rotation; HSM roadmap |
 | PIN fallback always accepted for step-up | Step-up only as strong as the PIN | Open (`docs/04`) |

@@ -2,7 +2,45 @@
 
 This documents the exact hashing/Merkle construction implemented in `packages/crypto-core`, and records the grid-size proof-of-concept result required by `CLAUDE.md` rule 6 before that default can be changed.
 
-## Pipeline (maps to `docs/02` steps 2–6)
+Two proof formats exist. **v2** (below) is used for every version created since Phase 1 (2026-10-19). **v1** (the "Pipeline" section after it) is legacy: existing v1 versions stay verifiable read-only, but no new v1 versions are created (ADR-021). A version's format is `DocumentVersion.proofVersion`.
+
+## Proof format v2 — salted leaves, RFC 6962 trees, commitment C
+
+Implemented once in `packages/crypto-core/src/dv2.ts` and `src/merkle-v2.ts`, and run by the browser (upload), the server (re-verification, rule 4) and the Court Verification Portal. An independent reference in plain `node:crypto` (`packages/crypto-core/reference/dv2-ref.mjs`, bottom-up tree) generates the test vectors (`test/vectors.json`) and is used by the smoke test and demo seed, so the two implementations check each other.
+
+All integers are unsigned big-endian, fixed width. `‖` is concatenation. `H` is SHA-256.
+
+| Value | Definition |
+|---|---|
+| tile rects | `tileW = ceil(width / grid)`, `tileH = ceil(height / grid)`; tile `(row, col)` starts at `(col·tileW, row·tileH)`; `w`, `h` are clipped at the page edge and clamped to `0` (the last row/column can be zero-area). Same grid as v1. |
+| `k` | `row · grid + col` — the tile's index **within its page** |
+| salt | 32 random bytes per tile (ADR-018) |
+| leaf | `H(0x00 ‖ salt ‖ "DV2" ‖ u32 page ‖ u32 k ‖ u32 w ‖ u32 h ‖ rgba)`, `rgba` = the tile's raw pixels, row-major, `w·h·4` bytes |
+| inner node | `H(0x01 ‖ left ‖ right)` |
+| `MTH(D)` | RFC 6962: one item → itself; `n > 1` → `node(MTH(D[0:k]), MTH(D[k:n]))`, `k` = largest power of two `< n`. An odd node is carried up, never duplicated. |
+| page root | `MTH(the page's grid² leaves in k order)` |
+| document root `R` | `H(0x02 ‖ u32 pageCount ‖ MTH(pageRoots))` |
+| `fileHash` | the client hash: `H(‖ u32 len ‖ png)` over every page PNG in page order (unchanged from v1) |
+| **commitment `C`** | `H(0x03 ‖ fileHash ‖ R)` — **the value anchored** on Polygon and in MinIO |
+| version chain hash | `H(0x06 ‖ prev ‖ C ‖ u32 versionNo ‖ u64 timestampMs)`, `prev` = `0x00` for version 1, else `0x01 ‖ prevChainHash[32]` |
+
+Domain-separation bytes across DigiVault: `0x00` leaf, `0x01` inner node, `0x02` document root, `0x03` commitment, `0x04` audit entry, `0x05` audit legacy digest, `0x06` version chain hash.
+
+**Where the parts live.** `DocumentVersion.merkleRoot` = `R`, `.commitment` = `C`, `.clientHash` = `fileHash`, `.proofVersion` = 2 (a CHECK constraint requires `commitment` on v2 rows). `Tile.tileHash` = the salted leaf. Salts: one AES-256-GCM blob per version in `VersionSaltSet`, written in the same transaction as the version.
+
+**Salts.** On upload the **browser** generates the salts (WebCrypto CSPRNG), hashes first and sends them with the pages; the server recomputes `R` and `C` with them and refuses the upload unless all three of `client_hash`, `merkle_root` (`R`) and `commitment` match, and unless the salts are 32-byte hex and all distinct. A redacted version is computed by the **server**, which generates **fresh** salts for it — never the prior version's, so a masked tile's original salt cannot leak through the redacted version's proof.
+
+**Why salts.** Without them, a leaf over a low-entropy tile (blank margin, a stamp, a short number) can be confirmed by guessing its pixels. With a per-tile salt, a leaf reveals nothing about a tile whose salt is withheld — the basis for verifiable redaction proofs (Phase 3), where masked tiles' salts never leave the server.
+
+**Why `C` binds `fileHash`.** `R` alone proves the pixels; `C` also proves the exact PNG files. The portal reports the difference: identical pixels in re-encoded PNGs give "the page pixels match, but the image files are not the originals".
+
+**Inclusion proofs** (`merkle-v2.ts`: `inclusionPath`, `rootFromInclusionPath` per RFC 9162 §2.1.3.2). An RFC 6962 path does **not** authenticate the tree size on its own (sizes with the same tree shape accept the same path), so a verifier never takes the size from a proof: it is always `grid²` per page and `pageCount` is hashed into `R`. Leaves are always recomputed from pixels and salt as `H(0x00 ‖ …)`, never accepted as input, so an inner node cannot be passed off as a leaf.
+
+**Verification (`apps/web/src/app/verify/proof-v2.ts`).** The portal places each supplied PNG at the page whose `png_sha256` it matches (falling back to natural filename order if any file matches none), decodes it without colour conversion or premultiplication, recomputes every leaf with the proof's salts, then the page roots, `R`, `fileHash` and `C`. **VERIFIED** requires the recomputed `C` to equal both the proof's `commitment` and `getAnchor(keccak256(versionId))` on the official contract. The proof's own leaves and page roots are only used to say where a mismatch is (page, row, column).
+
+**Tests.** `packages/crypto-core/test/dv2.test.ts`: the eight RFC 6962 / Certificate Transparency reference roots; vectors for 14 tree sizes and 4 documents (uneven, zero-area, standard and multi-page) against the reference; 20-run determinism; one changed pixel changes exactly one leaf, its page root, `R` and `C`; inclusion proofs for every index at n = 1, 2, 3, 4, 5, 7, 8, 17, 399, 400, 401; rejection of a wrong index, a different-shape size, tampered/extended/truncated paths, an inner node as a leaf, a duplicated last leaf, a different page count and a proof from another page. Browser and Node byte-for-byte agreement is exercised by every real upload (the server refuses any difference) — `scripts/e2e-part1.mjs` uploads a real 2-page PDF rendered by pdf.js in Chromium.
+
+## Legacy v1 pipeline (maps to `docs/02` steps 2–6)
 
 1. **Render**: PDF.js renders each page to a canvas at a given scale (`render.ts`).
 2. **Page PNG**: canvas exported via `toBlob`/`convertToBlob` as `image/png` — lossless, never JPEG (CLAUDE.md rule 1). This is the only byte format ever stored or transmitted for a page.
@@ -12,7 +50,7 @@ This documents the exact hashing/Merkle construction implemented in `packages/cr
 5. **Merkle tree**: one tree per document version, built over **all tiles from all pages**, ordered page-major then row-major (`tileIndex = pageIndex × gridSize² + row × gridSize + col`). Library: `merkletreejs`, `sortPairs: false` (order-preserving, not sorted-pair — required since tile order is semantically meaningful for redaction targeting).
    - **Hash implementation split**: leaf hashes (client_hash, tile hashes) use real WebCrypto `crypto.subtle.digest` (async). Internal node combination inside `merkletreejs` uses `js-sha256` (sync, pure JS) because WebCrypto has no synchronous browser API and `merkletreejs` requires a sync hash function. Both are plain SHA-256 — different implementations, identical algorithm and output for identical input. Anyone reimplementing verification independently only needs "SHA-256", not a specific library.
    - **Odd leaf-count handling**: with the options used here, `merkletreejs` carries a leftover node at an odd-length level up **unchanged** — it is not duplicated and re-hashed with itself (verified against the library by `packages/crypto-core/test/merkle-v1.test.ts` and `apps/web/scripts/smoke-test.mjs`; an earlier version of this doc said "duplicates", which was wrong). There is still no leaf/inner-node domain separation, so a proof could present an inner node as a leaf. Acceptable for this threat model (single trusted anchoring custodian, not an adversarial multi-party protocol) but worth revisiting if third-party proof forgery becomes a concern.
-6. **AI/OCR never touches any of the above** — confirmed by construction: `pipeline.ts: hashDocument()`'s only input is raw PDF bytes; there is no code path from `apps/ai-service` output into `hash.ts`, `tiles.ts`, or `merkle.ts`.
+6. **AI/OCR never touches any of the above** — confirmed by construction: `pipeline.ts: hashDocument()` (v1) and `hashDocumentV2()` (v2) take only raw PDF bytes; there is no code path from `apps/ai-service` output into `hash.ts`, `tiles.ts`, `merkle.ts`, `merkle-v2.ts` or `dv2.ts`.
 
 ## Grid size proof-of-concept — result
 
@@ -37,4 +75,4 @@ Caveat: the peak-heap figures were identical across both runs, which is suspicio
 
 - A real scanner-produced image (skew, JPEG-source artifacts baked into a scanned PDF, non-uniform lighting) — only synthetic PDFs so far. Use a real messy document for the step-7 integration pass.
 - Non-Chromium engines (Firefox/WebKit) for the officer-side pipeline or the verify portal.
-- Adversarial Merkle proof forgery attempts against the odd-leaf-duplication behavior noted above.
+- Adversarial Merkle proof forgery against v1's missing leaf/node domain separation. Resolved for new versions by v2 (domain-separated RFC 6962, tested above); v1 stays read-only.

@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { getVersionTiles } from "@/lib/tiles-repo";
+import { anchoredValue } from "@/lib/proof-v2";
 import { publicVerifyUrl } from "@/lib/public-proof";
 
 export const runtime = "nodejs";
@@ -69,7 +70,10 @@ export async function GET(
     tile_count: tileCount,
     status: version.status,
     is_redacted: version.isRedacted,
+    proof_version: version.proofVersion,
     merkle_root: version.merkleRoot,
+    // The value anchored on-chain: C for v2, the merkle root for legacy v1.
+    commitment: anchoredValue(version),
     client_hash: version.clientHash,
     chain_hash: version.chainHash,
     previous_hash: version.previousHash,
@@ -86,10 +90,10 @@ export async function GET(
         }
       : null,
     // Certificate QR target (ADR-022): chain-only check on /verify, under
-    // PUBLIC_BASE_URL. The v1 commitment is the merkle root.
+    // PUBLIC_BASE_URL.
     public_verify_url:
       anchor?.status === "ANCHORED" && anchor.polygonTxHash
-        ? publicVerifyUrl({ documentVersionId: version.id, commitment: version.merkleRoot, txHash: anchor.polygonTxHash })
+        ? publicVerifyUrl({ documentVersionId: version.id, commitment: anchoredValue(version), txHash: anchor.polygonTxHash })
         : null,
   });
 }

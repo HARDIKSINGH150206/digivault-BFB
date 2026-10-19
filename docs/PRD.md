@@ -75,7 +75,7 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 | FR-10 | Browser renders PDF pages to lossless PNG, tiles 20×20, hashes raw pixels, builds Merkle root | ✅ |
 | FR-11 | Server independently recomputes and rejects mismatches (`409 HASH_MISMATCH`) | ✅ |
 | FR-12 | Per-version hash chain | ✅ |
-| FR-13 | Domain-separated RFC 6962 Merkle tree, per-page roots, salted leaves, commitment `C` | 🔜 Phase 1 |
+| FR-13 | Domain-separated RFC 6962 Merkle tree, per-page roots, salted leaves, commitment `C` | ✅ Phase 1 |
 | FR-14 | Tile hashes retained per version (not overwritten by later versions) | 🔜 Phase 0 |
 
 ### 5.3 Anchoring
@@ -132,7 +132,7 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 
 | Risk | Mitigation |
 |---|---|
-| Lost salts make anchored roots unverifiable | Salts stored encrypted in Postgres + Object-Locked MinIO (ADR-018) |
+| Lost salts make anchored roots unverifiable | Salts stored encrypted in Postgres, insert-only (ADR-018); back up the database and `SALT_ENCRYPTION_KEY` |
 | OCR misses a victim identifier (legal violation) | Fail-closed review, gazetteer, published recall, human confirmation |
 | Anchoring key compromise | Contract v2 owner rotation + anchorer revocation; HSM on roadmap |
 | Browser rendering differences | Verification works from stored PNGs, never re-renders PDFs; cross-engine tests |

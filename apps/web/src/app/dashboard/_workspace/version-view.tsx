@@ -39,7 +39,9 @@ interface VersionInfo {
   version_no: number;
   grid_size: number;
   tile_count: number;
+  proof_version: number;
   merkle_root: string;
+  commitment: string;
   client_hash: string;
   chain_hash: string;
   previous_hash: string | null;
@@ -458,7 +460,14 @@ export function WorkspaceVersionView() {
                 )}
                 <details className="wsv-details">
                   <summary>View technical details</summary>
-                  <div className="wsv-hash"><span className="wsv-hash-label">Merkle root</span><span className="wsv-hash-value">{info.merkle_root}</span></div>
+                  {info.proof_version === 1 ? (
+                    <div className="wsv-hash"><span className="wsv-hash-label">Merkle root (legacy v1, unsalted)</span><span className="wsv-hash-value">{info.merkle_root}</span></div>
+                  ) : (
+                    <>
+                      <div className="wsv-hash"><span className="wsv-hash-label">Anchored commitment</span><span className="wsv-hash-value">{info.commitment}</span></div>
+                      <div className="wsv-hash"><span className="wsv-hash-label">Document root (salted tiles)</span><span className="wsv-hash-value">{info.merkle_root}</span></div>
+                    </>
+                  )}
                   <div className="wsv-hash"><span className="wsv-hash-label">Client hash (page images)</span><span className="wsv-hash-value">{info.client_hash}</span></div>
                   <div className="wsv-hash"><span className="wsv-hash-label">Chain hash</span><span className="wsv-hash-value">{info.chain_hash}</span></div>
                   <div className="wsv-hash"><span className="wsv-hash-label">Previous version&apos;s chain hash</span><span className="wsv-hash-value">{info.previous_hash ?? "None (first version)"}</span></div>

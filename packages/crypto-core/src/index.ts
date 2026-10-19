@@ -3,4 +3,6 @@ export * from "./hash";
 export * from "./render";
 export * from "./tiles";
 export * from "./merkle";
+export * from "./merkle-v2";
+export * from "./dv2";
 export * from "./pipeline";

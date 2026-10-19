@@ -41,6 +41,7 @@ export async function GET(
             id: result.document.redactedVersion.id,
             versionNo: result.document.redactedVersion.versionNo,
             merkleRoot: result.document.redactedVersion.merkleRoot,
+            commitment: result.document.redactedVersion.commitment,
             chainHash: result.document.redactedVersion.chainHash,
             timestamp: result.document.redactedVersion.timestamp.toISOString(),
             storageUri: result.document.redactedVersion.storageUri,

@@ -124,9 +124,9 @@ export default async function SharedDocumentPage({ params }: { params: { token: 
               <dd>{version.versionNo} (redacted)</dd>
               <dt>Created</dt>
               <dd>{formatDate(version.timestamp)}</dd>
-              <dt>Merkle root</dt>
+              <dt>Anchored commitment</dt>
               <dd>
-                <code className="sh-code" title={version.merkleRoot}>{shortHash(version.merkleRoot)}</code>
+                <code className="sh-code" title={version.commitment}>{shortHash(version.commitment)}</code>
               </dd>
               {version.polygonTxHash && (
                 <>

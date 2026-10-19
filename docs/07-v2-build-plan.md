@@ -45,6 +45,10 @@ Carried into Phase 1: generate salts per tile at upload and store them (`lib/til
 
 ## Phase 1 — Merkle hardening and tile salts (Day 1)
 
+**Status (2026-10-19, branch `v2/phase-1-merkle`): Phase 1 complete.** Spec in `docs/03` §v2; decisions in ADR-018 (who generates salts), ADR-021, ADR-027. Every listed unit test exists (`packages/crypto-core/test/dv2.test.ts`, vectors in `test/vectors.json` from an independent reference implementation) and passes; upload → redact → anchor → proof → `/verify` works end to end, for v2 and for legacy v1 proofs.
+Deviation: v2 commitments are anchored on the existing v1 contract (rule 3 requires every version to be anchored; the v1 contract stores any 32-byte value). Test runs during Phase 1 anchored ~9 versions on Amoy.
+Carried into Phase 2: anchor `C` through contract v2; the verifier then trusts both addresses (v1 legacy read-only, v2 current).
+
 **Where:** `packages/crypto-core` **and every consumer of the leaf format**: `lib/server-hash.ts`, upload route, redaction confirm route, proof route, `verify/page.tsx`, `apps/web/prisma/seed-demo.ts`. The app must work at the end of this phase, not only at the end of Phase 3.
 
 All integers are unsigned big-endian, fixed width (u32 unless stated). `‖` is byte concatenation. `H` is SHA-256.

@@ -2,9 +2,10 @@
  * Public, redaction-safe proof files and certificate verification links
  * (ADR-022, docs/07 P0.6 / Phase 5).
  *
- * The public proof is a strict subset of verification-proof.json (docs/04
- * section 5), so it can also be dropped into /verify together with page
- * images. It carries only opaque identifiers and hashes:
+ * The public proof uses the field names of verification-proof.json v2
+ * (docs/04 section 5) but is a strict subset of it: it backs the chain-only
+ * certificate check, and verifying page images needs the full proof, whose
+ * salts are not public. It carries only opaque identifiers and hashes:
  *   - no case number, FIR number, document title, names or officer data;
  *   - no per-tile hashes and no page-image hashes (the verifier recomputes
  *     everything from the pages it is given);
@@ -27,7 +28,7 @@ export const PUBLIC_PROOF_KEYS = [
   "digivault_proof_version",
   "public",
   "document_version_id",
-  "merkle_root",
+  "commitment",
   "grid_size",
   "page_count",
   "is_redacted",
@@ -58,7 +59,7 @@ export function buildPublicProof(input: PublicProofInput, base?: string): Record
     digivault_proof_version: input.proofVersion,
     public: true,
     document_version_id: input.documentVersionId,
-    merkle_root: commitment,
+    commitment,
     grid_size: input.gridSize,
     page_count: input.pageCount,
     is_redacted: input.isRedacted,

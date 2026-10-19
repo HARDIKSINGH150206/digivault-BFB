@@ -102,9 +102,10 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** Standard hiding commitment, cheap to verify in a browser. ZK moves to future work. Salts become evidence that must be preserved (ADR-018).
 
 ## ADR-018 — Salt generation and custody
-**Status:** Accepted (2026-10-18) — option A; storage implemented in Phase 0, generation/use in Phase 1
+**Status:** Accepted (2026-10-18) — option A; storage implemented in Phase 0, generation/use in Phase 1 (2026-10-19)
 **Options considered:** A — random salts, stored encrypted; B — `salt_k = HMAC(serverKey, versionId ‖ k)` (no storage, but breaks "client hashes first" and key loss loses every proof).
 **Decision:** A random 32-byte salt per tile, stored per version as one AES-256-GCM blob in the `VersionSaltSet` table (associated data `<versionId>|<tileCount>`; key `SALT_ENCRYPTION_KEY` / `SALT_ENCRYPTION_KEY_ID`). The app role can INSERT/SELECT only. Masked-tile salts never leave the server: `lib/tile-salts.ts: revealableSalts()` is the only selector for outgoing salts.
+**Who generates them (Phase 1):** for an upload, the **browser** (WebCrypto CSPRNG), so the client still hashes first and the server re-verifies with the same salts (rule 4); the server refuses salts that are malformed or not all distinct. For a redacted version, the **server**, which computes that version anyway — and always fresh salts, never the prior version's, so a masked tile's original salt cannot reach a holder of the redacted version's proof. A version and its salt set are written in one transaction, and uploads/redactions return `503` if the key is not configured.
 **Consequences:** The salt key must be backed up like the anchoring key — losing it makes salted commitments unverifiable. Salts live only in Postgres (decision); a MinIO Object-Lock copy was considered and not adopted, so database backups must include `VersionSaltSet`.
 
 ## ADR-019 — Contract v2: rotatable ownership, anchorer allow-list, audit heads
@@ -117,15 +118,16 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** Insider edits detectable, except within the window since the last anchored head (≤ 6 h) — documented, not hidden.
 
 ## ADR-021 — Proof format versioning and v1 legacy data
-**Status:** Accepted (2026-10-18), implemented
+**Status:** Accepted (2026-10-18), implemented; v2 live since Phase 1 (2026-10-19)
 **Decision:** `/verify` keeps a read-only v1 path for existing anchors, labelled **"Legacy v1 proof (unsalted)"**; any other `digivault_proof_version` is refused until its verifier exists. No new v1 proofs: from Phase 1, new versions are salted and their proofs are v2. Until Phase 1 lands every version is still v1, so the authenticated proof download keeps serving v1 bundles (it would otherwise break the working court-bundle flow); no *public* v1 proofs are published.
+**Phase 1:** the upload API refuses anything but `proof_version: 2`; redactions always produce v2 versions (even of a v1 original); the proof route serves v2 for v2 versions and v1 for legacy ones; `/verify` accepts both and labels each.
 
 ## ADR-022 — Proof publication for the certificate QR
 **Status:** Accepted (2026-10-18), implemented (QR image on the certificate is Phase 5)
 **Context:** `/verify?version=<id>` would need the app backend to look up the proof, violating rule 5.
 **Decision:** Both, combined:
 - The QR URL embeds everything the chain check needs: `<PUBLIC_BASE_URL>/verify?v=<versionId>&c=<commitment>&tx=<txHash>` (`lib/public-proof.ts: publicVerifyUrl`; exposed as `public_verify_url` on the version API). `/verify` checks `getAnchor(keccak256(v)) == c`, the anchorer, and that tx `tx` succeeded, was sent to the official contract and emitted `RootAnchored(v, c)` — chain only, no MinIO, no backend. `PUBLIC_BASE_URL` makes it work on a LAN IP or tunnel.
-- A redaction-safe public proof (`lib/public-proof.ts: buildPublicProof`) is published write-once to the Object-Locked `digivault-public-proofs` bucket (anonymous GET on `proofs/*` only, no listing). It holds only opaque IDs and hashes — no case/FIR numbers, titles, names, tile hashes, page hashes or salts. Published only for salted versions (ADR-021).
+- A redaction-safe public proof (`lib/public-proof.ts: buildPublicProof`; its anchored value is under `commitment`, renamed from `merkle_root` in Phase 1 before any was published) is published write-once to the Object-Locked `digivault-public-proofs` bucket (anonymous GET on `proofs/*` only, no listing). It holds only opaque IDs and hashes — no case/FIR numbers, titles, names, tile hashes, page hashes or salts. Published only for salted versions (ADR-021).
 - "Salted IDs" was interpreted as: the only identifier is the random cuid version ID (not derived from case data), and any tile leaves are salted.
 **Consequences:** The UI says plainly that the QR check proves the certificate's commitment is anchored, and that verifying a document needs its pages; a link and a proof file for different versions are refused together.
 
@@ -149,6 +151,12 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Context:** 261 `AuditLog` rows predate the hash chain (`seq` NULL) and were not covered by it.
 **Decision:** `scripts/audit-legacy-genesis.mjs` computes `SHA256(0x05 ‖ u32 count ‖ rows…)` over those rows (ordered by timestamp, id; field encoding in `scripts/lib/audit-chain-ref.mjs`), dual-anchors it — MinIO `digivault-anchors/audit/legacy-genesis.json` (Object Lock) and `EvidenceAnchor.anchorRoot(keccak256("digivault:audit-legacy-genesis:v1"), digest)` — and appends one chained entry `AUDIT_LEGACY_GENESIS` recording digest, count, tx and MinIO URI. `pnpm audit:verify` recomputes the digest; `--onchain` also checks Polygon.
 **Consequences:** It is appended at seq 58, not seq 1: the chain already had 57 entries, and renumbering them would itself be audit-log tampering. Done once on this database: tx `0x70855cde7a12d1f250d6fe0442cfc2dd7defb5cb4f234c6d28365a3b100b9e63`, block 50517435. A fresh database has no pre-chain rows and needs no genesis entry.
+
+## ADR-027 — v2 commitment: what is anchored and where it is stored
+**Status:** Accepted (2026-10-19), implemented (Phase 1)
+**Context:** v2 anchors `C = H(0x03 ‖ fileHash ‖ R)` (docs/03 §v2) instead of a Merkle root, while legacy v1 versions keep anchoring their root. Every route that writes, compares or displays the anchored value must pick the right one.
+**Decision:** `DocumentVersion.proofVersion` (default 1) and `commitment` (nullable; a CHECK constraint requires it when `proofVersion = 2`). For v2, `merkleRoot` holds `R` — it stays a Merkle root, as its name says — and `commitment` holds `C`. `lib/proof-v2.ts: anchoredValue()` is the single rule (`C` for v2, `merkleRoot` for v1) used by anchoring, reconciliation, the MinIO record, the public proof, the certificate link, the certificate PDF and the share page. Until contract v2 (Phase 2), `C` is written to the v1 contract's `anchorRoot(bytes32, bytes32)`, which stores any 32-byte value; the proof format, not the contract, says what the value means.
+**Consequences:** `C` binds the exact PNG files as well as the pixels, so a re-encoded page with identical pixels does not verify; the portal says so specifically rather than "mismatch". An RFC 6962 inclusion path does not authenticate tree size by itself, so verifiers take the size from the grid (`grid²` per page, `pageCount` hashed into `R`) and always recompute leaves from pixels — tested in `packages/crypto-core/test/dv2.test.ts`.
 
 ---
 
