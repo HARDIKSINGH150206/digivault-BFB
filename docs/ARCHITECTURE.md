@@ -79,7 +79,7 @@ Sections marked **(v2)** describe planned state; everything else is current code
 - Serves only the newest `READY` redacted version; otherwise `403 NO_REDACTED_VERSION`.
 
 ### 3.6 (v2) Redaction proof, audit anchoring, certificate QR
-See `docs/07` Phases 3–5. Summary: the verifier proves a redacted copy against the *original* commitment using revealed salts for unmasked tiles and given salted leaves for masked tiles; audit-chain heads ride along with each anchor and every 6 h; the certificate QR points at a public Object-Locked proof object in MinIO.
+Redaction proofs (Phase 3, done; docs/03 §Redaction proofs): the verifier proves a redacted copy against the *original* commitment using revealed salts for unmasked tiles and given salted leaves for masked tiles. See `docs/07` Phases 4–5 for the rest: audit-chain heads ride along with each anchor and every 6 h; the certificate QR points at a public Object-Locked proof object in MinIO.
 
 ## 4. Data model (Prisma)
 
@@ -117,8 +117,8 @@ Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C
 | Corrupt admin with DB owner role | Edit or delete audit rows | Audit hash chain (✅ P0.4) + anchored heads (🔜 Phase 4) | partial |
 | Malicious proof author | Point verifier at their own contract | Contract/chain/anchorer hardcoded (F-02) | ✅ |
 | Proof forger | Second-preimage via inner-node-as-leaf / duplicated leaf | RFC 6962 domain separation, no duplication; size fixed by the grid (ADR-027) | ✅ v2 (Phase 1); v1 legacy read-only |
-| Curious recipient of redacted copy | Brute-force masked tile content from its hash | Per-tile 32-byte salts; redacted versions get fresh salts | ✅ salts (Phase 1); redaction proofs Phase 3 |
-| Redactor | Show fabricated content inside a "masked" tile | Verifier checks masked tiles are solid mask colour | 🔜 v2 Phase 3 |
+| Curious recipient of redacted copy | Brute-force masked tile content from its hash | Per-tile 32-byte salts; redacted versions get fresh salts | ✅ salts (Phase 1), redaction proofs withhold masked tiles' salts (Phase 3) |
+| Redactor | Show fabricated content inside a "masked" tile | Verifier checks masked tiles are solid mask colour | ✅ Phase 3 |
 | Share-link holder | Get the unredacted original | Shares serve only redacted versions (F-03) | ✅ |
 | Signing-key thief | Anchor forged commitments | Contract v2: revoke the key from the compromise time (its later anchors become untrusted in `/verify`), two-step owner rotation (ADR-028); HSM roadmap | ✅ Phase 2 (owner key remains a single point of trust) |
 

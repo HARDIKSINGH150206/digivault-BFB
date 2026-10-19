@@ -257,7 +257,7 @@ The portal is public, stateless, and makes **zero calls to DigiVault's backend**
   }
 }
 ```
-- `tiles[].salt`: this version's own salts, every tile (selected through `revealableSalts`). The proof goes only to whoever is given the version's pages. A redacted version's salts are its own fresh ones, so no masked tile's original salt is ever in a proof (Phase 3 redaction proofs reveal the original's *unmasked* salts only).
+- `tiles[].salt`: this version's own salts, every tile (selected through `revealableSalts`). The proof goes only to whoever is given the version's pages. A redacted version's salts are its own fresh ones, so no masked tile's original salt is ever in a proof (redaction proofs, section 6, reveal the original's *unmasked* salts only).
 - Before serving a v2 proof, the route rebuilds `R` from the stored leaves, `fileHash` from the stored PNGs and `C` from both, and returns `409 INTEGRITY_ERROR` if any differs from the recorded value or the salt set is missing.
 - The portal recomputes everything from the PNGs and the salts; `leaf`, `page_root`, `png_sha256`, `document_root` and `file_hash` only let it say where a mismatch is. PNGs are placed by `png_sha256`, so file names don't matter.
 
@@ -298,6 +298,8 @@ The portal is public, stateless, and makes **zero calls to DigiVault's backend**
 
 When a contract is redeployed, update those constants in `apps/web/src/app/verify/page.tsx` together with `packages/contracts/deployments/amoy-v2.json` (or `amoy.json` for v1).
 
+**Redaction proofs (ADR-029):** a dropped file with `format: "digivault-redaction-proof/1"` is checked per docs/03 §Redaction proofs: the redacted PNGs must rebuild both the original version's and the redacted version's commitments, and both must match their anchors on the official contracts. The result names every changed tile or masked tile that shows content; on success it shows, per page, "N of 400 tiles are byte-identical to the original anchored on <date> · M masked · nothing else changed", with the masked areas outlined.
+
 **Proof versions (ADR-021):** `2` is current — the portal recomputes `C` (docs/03 §v2) and requires `recomputed C === proof.commitment === on-chain value`, labelled "v2 (salted tiles)". `1` is verified on a read-only legacy path (steps A–E above) and labelled "Legacy v1 proof (unsalted)". Any other version is refused.
 
 **Certificate link (ADR-022):** `/verify?v=<document_version_id>&c=<commitment hex>&tx=<polygon tx hash>`, built from `PUBLIC_BASE_URL` and returned as `public_verify_url` by `GET .../versions/{versionId}` once anchored. The portal checks, against the chain only: tx `tx` succeeded and was sent to one of the two official contracts; on that contract `getAnchor(keccak256(v))` holds `c` and the anchor is trusted (rules in step D); and the tx emitted that contract's anchor event for `(keccak256(v), c)` — `DocumentAnchored` on v2, `RootAnchored` on v1. It reports "commitment anchored", never "document verified". If a proof file is also dropped, its `document_version_id` must equal `v`.
@@ -315,6 +317,7 @@ All under `/api/v1/documents/{documentId}/versions/{versionId}/`, all roles, eac
 | `GET certificate` | pre-filled, unsigned BSA §63 PDF | **Requires `X-StepUp-Token`** |
 | `GET proof` | `verification-proof.json` (section 5) | `409 NOT_ANCHORED` until the version has an `ANCHORED` row |
 | `GET pages/{pageIndex}` | the page PNG | |
+| `GET redaction-proof` | `redaction-proof.json` (docs/03 §Redaction proofs) | Redacted versions only (`400 NOT_REDACTED` otherwise). `409 NOT_ANCHORED` until both this version and its original are anchored; `409 LEGACY_ORIGINAL` when the original is a v1-format version; `409 INTEGRITY_ERROR` if the proof would not verify against the stored pages (it is self-checked before serving). Audited as `DOWNLOAD_REDACTION_PROOF`. Contains the original's salts for unmasked tiles only. |
 
 ---
 

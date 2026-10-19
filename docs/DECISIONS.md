@@ -169,6 +169,17 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 - The verifier hardcodes both contracts. v2: trust = `isTrusted()`. v1 (legacy, read-only): trust = `anchoredBy` is the v1 account. Proof files say which contract (`anchor.contract_address`, from `AnchorLog.contractAddress`); certificate links are resolved by the tx's `to`.
 **Consequences:** Key rotation needs no redeploy. Phase 1's v2-format test versions stay anchored on v1 and still verify. The v1 contract is never written again by the app (the one-off audit legacy-genesis anchor, ADR-026, stays on v1). Revocation is owner-only, so the owner key is the remaining single point of trust (HSM on the roadmap). Deploy cost 0.025 POL; a document anchor with an audit head ≈ 90k gas (≈0.0027 POL at 30 gwei).
 
+## ADR-029 — Redaction proofs: format, original version, masked set
+**Status:** Accepted (2026-10-19), implemented (Phase 3)
+**Context:** docs/07 Phase 3 sketched the file and the verifier algorithm. Left open: which version a redacted copy is proved against when redactions are chained, how a changed tile is named, how the masking is done so unmasked pixels survive exactly, and what happens for a v1 original.
+**Decision:**
+- Proved against the nearest earlier unredacted version; the masked set is the union of `RedactionFlag.masked` over every redaction step since then.
+- Each page carries all of the original's leaves (`originalLeaves`) instead of the plan's `maskedLeaves`: masked entries are inputs, unmasked ones are hints that let the portal name a changed tile. The redacted version's own salts are included too, so one file verifies both anchors.
+- `redactPagePng` fills masked tiles in the raw RGBA and re-encodes, instead of compositing an SVG, so unmasked pixels are copied bit-for-bit and the mask is exactly `[0, 0, 0, 255]`.
+- The server runs the same check as the portal on every proof before serving it.
+- v1 originals are refused (`LEGACY_ORIGINAL`): their leaves are unsalted.
+**Consequences:** A recipient needs only the redacted PNGs and `redaction-proof.json`. A re-encoded copy fails (the redacted version's own commitment binds the PNG bytes). Redacted versions created before this change used SVG compositing; they verify if their pages were fully opaque, which pdf.js renders are. Share links still serve a PDF; redacted page PNGs and the redaction proof for share recipients are not wired up yet.
+
 ---
 
 ## Template
