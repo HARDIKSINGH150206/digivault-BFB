@@ -23,10 +23,12 @@ import { WorkspaceShell, Icon, caseStatusChip, relativeTime, formatDateTime, gre
 import { loadEvidence, buildActivity, anchorState, humanizeCode, type CaseRow, type Evidence, type ActivityRow } from "./data";
 import { ActivityPanel } from "./activity-table";
 import { NewCaseControl } from "./new-case";
+import { DeadlineChip, deadlineSentence, deadlineShort, needsDeadlineAlert } from "./deadline";
 
 const PREVIEW_ROWS = 5;
 
 const IO_CSS = `
+.io-status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .io-grid-top { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); gap: 16px; margin-top: 16px; align-items: start; }
 .io-grid-bottom { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 16px; align-items: start; }
 .io-grid-bottom .ws-panel { margin-top: 16px; }
@@ -68,7 +70,37 @@ const IO_CSS = `
 }
 `;
 
-type AttentionItem = { e: Evidence; kind: "review" | "anchor" };
+type AttentionItem = { e: Evidence; kind: "review" | "anchor" } | { kase: CaseRow; kind: "deadline" };
+
+function AttentionRow({ e, kind, href }: { e: Evidence; kind: "review" | "anchor"; href: string }) {
+  return (
+    <li>
+      <Link className="ws-row" href={href}>
+        <span className="ws-row-icon"><Icon name="file" /></span>
+        <span className="ws-row-main">
+          <div className="ws-row-title">{e.kase.case_number}</div>
+          <div className="ws-row-sub">{e.doc.title}</div>
+        </span>
+        <span className="ws-row-status">
+          {kind === "review" ? (
+            <>
+              <span className="ws-chip ws-chip-warn">Review required</span>
+              <span className="ws-row-note">
+                {e.pendingSuggestions} redaction suggestion{e.pendingSuggestions === 1 ? "" : "s"} waiting
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="ws-chip ws-chip-warn">{e.version && anchorState(e.version) === "failed" ? "Anchoring failed" : "Not anchored"}</span>
+              <span className="ws-row-note">Version {e.version?.version_no} · retry from the document page</span>
+            </>
+          )}
+        </span>
+        <span className="ws-chevron"><Icon name="chevron" size={18} /></span>
+      </Link>
+    </li>
+  );
+}
 
 export function InvestigationDashboard() {
   const { session } = useAuth();
@@ -122,7 +154,12 @@ export function InvestigationDashboard() {
   const casesNeedingReview = new Set(pendingReview.map((e) => e.kase.id));
 
   // Actions this role can actually take: review first, then anchoring for evidence with nothing left to review.
+  // BNSS s.193(2) alerts (docs/07 Phase 7) come first, closest deadline first.
+  const deadlineAlerts = cases
+    .filter((c) => needsDeadlineAlert(c.bnss_deadline))
+    .sort((a, b) => a.bnss_deadline!.days_left - b.bnss_deadline!.days_left);
   const attention: AttentionItem[] = [
+    ...deadlineAlerts.map((kase) => ({ kase, kind: "deadline" as const })),
     ...pendingReview.map((e) => ({ e, kind: "review" as const })),
     ...(canAnchor ? anchorNeedsAction.filter((e) => (e.pendingSuggestions ?? 0) === 0).map((e) => ({ e, kind: "anchor" as const })) : []),
   ];
@@ -177,7 +214,7 @@ export function InvestigationDashboard() {
           <div className="ws-panel-head">
             <div>
               <h2 id="io-attention-title" className="ws-panel-title">Needs your attention</h2>
-              <p className="ws-panel-sub">Evidence you can review or anchor.</p>
+              <p className="ws-panel-sub">Investigation deadlines, and evidence you can review or anchor.</p>
             </div>
             {attention.length > PREVIEW_ROWS && (
               <button type="button" className="ws-more" onClick={() => setExpanded((x) => ({ ...x, attention: !x.attention }))}>
@@ -191,33 +228,26 @@ export function InvestigationDashboard() {
             <p className="ws-empty">You&apos;re all caught up.</p>
           ) : (
             <ul className="ws-list">
-              {visibleAttention.map(({ e, kind }) => (
-                <li key={`${kind}-${e.doc.id}`}>
-                  <Link className="ws-row" href={versionHref(e)}>
-                    <span className="ws-row-icon"><Icon name="file" /></span>
-                    <span className="ws-row-main">
-                      <div className="ws-row-title">{e.kase.case_number}</div>
-                      <div className="ws-row-sub">{e.doc.title}</div>
-                    </span>
-                    <span className="ws-row-status">
-                      {kind === "review" ? (
-                        <>
-                          <span className="ws-chip ws-chip-warn">Review required</span>
-                          <span className="ws-row-note">
-                            {e.pendingSuggestions} redaction suggestion{e.pendingSuggestions === 1 ? "" : "s"} waiting
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="ws-chip ws-chip-warn">{e.version && anchorState(e.version) === "failed" ? "Anchoring failed" : "Not anchored"}</span>
-                          <span className="ws-row-note">Version {e.version?.version_no} · retry from the document page</span>
-                        </>
-                      )}
-                    </span>
-                    <span className="ws-chevron"><Icon name="chevron" size={18} /></span>
-                  </Link>
-                </li>
-              ))}
+              {visibleAttention.map((item) =>
+                item.kind === "deadline" ? (
+                  <li key={`deadline-${item.kase.id}`} role="alert">
+                    <Link className="ws-row" href={`/dashboard/cases/${item.kase.id}`}>
+                      <span className="ws-row-icon"><Icon name="clock" /></span>
+                      <span className="ws-row-main">
+                        <div className="ws-row-title">{item.kase.case_number}</div>
+                        <div className="ws-row-sub" title={deadlineSentence(item.kase.bnss_deadline!)}>{deadlineShort(item.kase.bnss_deadline!)}</div>
+                      </span>
+                      <span className="ws-row-status">
+                        <DeadlineChip deadline={item.kase.bnss_deadline} />
+                        <span className="ws-row-note">{item.kase.bnss_deadline!.covered_sections.join(", ")}</span>
+                      </span>
+                      <span className="ws-chevron"><Icon name="chevron" size={18} /></span>
+                    </Link>
+                  </li>
+                ) : (
+                  <AttentionRow key={`${item.kind}-${item.e.doc.id}`} e={item.e} kind={item.kind} href={versionHref(item.e)} />
+                )
+              )}
             </ul>
           )}
         </section>
@@ -260,7 +290,12 @@ export function InvestigationDashboard() {
                         <div className="io-sub">{kase.document_count} file{kase.document_count === 1 ? "" : "s"}</div>
                       </td>
                       <td className="io-hide-sm">{humanizeCode(kase.case_type)}</td>
-                      <td>{caseStatusChip(kase.status)}</td>
+                      <td>
+                        <div className="io-status">
+                          {caseStatusChip(kase.status)}
+                          <DeadlineChip deadline={kase.bnss_deadline} />
+                        </div>
+                      </td>
                       <td className="ws-muted io-when" title={formatDateTime(last)}>{relativeTime(last)}</td>
                     </tr>
                   );

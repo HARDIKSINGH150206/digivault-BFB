@@ -337,6 +337,25 @@ The `/shares/{token}` page has a "Download verification files" button that fetch
 
 ---
 
+## 7a. Cases and the BNSS s.193(2) deadline
+
+Case management is outside the evidence lifecycle above, but the deadline fields are part of the contract (docs/07 Phase 7, ADR-032).
+
+| Route | Roles | Notes |
+|---|---|---|
+| `GET /api/v1/cases`, `GET /api/v1/cases/{caseId}` | all | Each case includes `fir_registered_at` (ISO or null), `offence_sections` (string[]) and `bnss_deadline`. |
+| `POST /api/v1/cases` | POLICE_OFFICER, INVESTIGATING_OFFICER, ADMIN | Optional `fir_registered_at` (`YYYY-MM-DD` = midnight India time, or ISO; not in the future) and `offence_sections` (list, or text like `"BNS 64, 74; POCSO 4"`: a bare number takes the act before it; at most 20, each ≤ 60 chars). `400 BAD_REQUEST` otherwise. |
+| `PATCH /api/v1/cases/{caseId}` | same | Sets either or both fields (`null` clears the date). Audited as `UPDATE_CASE_DEADLINE_FIELDS` with old and new values. |
+
+`bnss_deadline` is `null` unless the case has a registration date, at least one covered section (BNS 64–68, 70, 71; POCSO 4, 6, 8, 10; sub-sections like `BNS 64(1)` count) and is not `CLOSED`. Otherwise:
+
+```json
+{ "covered_sections": ["BNS 64"], "registered_on": "2026-08-30", "due_on": "2026-10-29",
+  "day": 50, "days_left": 10, "level": "amber", "label": "Day 50 of 60" }
+```
+
+Days are calendar days in India time, excluding the registration day. `due_on` is the earlier of +60 days and +2 calendar months. `level`: `on_track`, `amber` from day 45, `red` from day 55, `overdue` from the due date (label `Due today`, then `Overdue by N days`).
+
 ## 8. Audit trail
 
 Every write goes through `writeAuditLog` (`apps/web/src/lib/audit.ts`), which never throws: a failed audit write is `console.error`ed and the audited action continues. `AuditLog` is insert-only for the app's DB role. Columns: `actorId`, `action`, `targetId`, `targetType`, `targetMeta` (JSON), `sourceIp`, `timestamp`.
@@ -345,7 +364,8 @@ Every write goes through `writeAuditLog` (`apps/web/src/lib/audit.ts`), which ne
 
 | Action | Written by | `targetMeta` |
 |---|---|---|
-| `CREATE_CASE` | cases POST | — |
+| `CREATE_CASE` | cases POST | `firRegisteredAt`, `offenceSections` |
+| `UPDATE_CASE_DEADLINE_FIELDS` | cases PATCH | `before` / `after`: `firRegisteredAt`, `offenceSections` |
 | `UPLOAD_DOCUMENT_VERSION` | upload | — |
 | `CONFIRM_REDACTIONS` / `CONFIRM_REDACTIONS_DETAIL` | confirm | detail: prior version, `redactedTileIndices`, `tilesByPage` |
 | `ANCHOR_INITIATED` / `ANCHOR_COMPLETE` / `ANCHOR_FAILED` | `lib/anchor.ts` | `documentVersionId`; tx hash; `stage` + `error` |
