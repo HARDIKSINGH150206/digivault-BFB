@@ -16,7 +16,7 @@ How to set up, run, test and change the project. Read `CLAUDE.md` first — its 
 
 ```
 apps/web/             Next.js 14 app: UI, API routes, server re-hash, anchoring, /verify
-apps/web/scripts/     smoke-test.mjs, e2e-part1..3.mjs (Playwright)
+apps/web/scripts/     smoke-test.mjs, e2e-part1..3.mjs, e2e-certificate.mjs (Playwright)
 apps/web/prisma/      seed-demo.ts (realistic demo data through the real pipeline)
 apps/ai-service/      FastAPI redaction-suggestion service
 packages/crypto-core/ PDF→PNG, tile hashing, Merkle (shared by browser, server, /verify)
@@ -84,6 +84,7 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | UI e2e (login, case, upload) | `cd apps/web && node scripts/e2e-part1.mjs` |
 | UI e2e (step-up, redaction, cert, share) | `cd apps/web && node scripts/e2e-part2.mjs` |
 | UI e2e (`/verify` against real Amoy anchor, incl. redaction proofs) | `cd apps/web && node scripts/e2e-part3.mjs` |
+| Certificate QR on a phone-sized browser (existing anchor, no gas) | `cd apps/web && CERT_DOCUMENT_ID=… CERT_VERSION_ID=… node scripts/e2e-certificate.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
 | Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check every anchored audit head and the legacy-rows anchor on Polygon (a rewrite with recomputed hashes is located between two anchored heads) |
