@@ -77,7 +77,9 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | Type-check crypto-core | `pnpm --filter @digivault/crypto-core typecheck` |
 | Grid-size PoC (headless Chromium) | `pnpm --filter @digivault/crypto-core poc` |
 | Compile contract | `pnpm --filter @digivault/contracts compile` |
-| Deploy contract to Amoy | `pnpm --filter @digivault/contracts deploy:amoy` |
+| Contract tests (Hardhat in-process chain) | `pnpm --filter @digivault/contracts test` (also part of `pnpm test`) |
+| Deploy EvidenceAnchorV2 to Amoy (already done; refuses to overwrite `amoy-v2.json` without `FORCE_REDEPLOY=1`) | `pnpm --filter @digivault/contracts deploy:amoy-v2` |
+| Deploy the legacy v1 contract (don't — kept for reference) | `pnpm --filter @digivault/contracts deploy:amoy` |
 | API smoke test | `cd apps/web && node scripts/smoke-test.mjs` |
 | UI e2e (login, case, upload) | `cd apps/web && node scripts/e2e-part1.mjs` |
 | UI e2e (step-up, redaction, cert, share) | `cd apps/web && node scripts/e2e-part2.mjs` |
@@ -108,7 +110,9 @@ The smoke and e2e scripts need the web app running (and the AI service for parts
 ## 6. Contract changes
 
 - Source: `packages/contracts/contracts/`. Deployment records: `packages/contracts/deployments/*.json`.
-- After a redeploy, update together: the deployment JSON, `apps/web/src/lib/contract-address.ts` consumers, the hardcoded constants in `apps/web/src/app/verify/page.tsx`, and the README.
+- Two contracts (ADR-028): `EvidenceAnchorV2` (`deployments/amoy-v2.json`) receives every anchor; `EvidenceAnchor` v1 (`deployments/amoy.json`) is legacy and read-only. `lib/contract-address.ts` reads both.
+- After a redeploy, update together: the deployment JSON, the hardcoded constants in `apps/web/src/app/verify/page.tsx` (`CONTRACT_V2`, `LEGACY_V1_*`), the README and `docs/04` §5.
+- Key rotation needs no redeploy: `addAnchorer(new)`, then `removeAnchorer(old)` (retire). For a stolen key use `revokeAnchorer(old, compromisedSince)`, which also distrusts its anchors from that time.
 - Cap gas fees in anchoring code; check the wallet balance before demos.
 
 ## 7. Rules when changing code

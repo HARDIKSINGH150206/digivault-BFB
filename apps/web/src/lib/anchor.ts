@@ -3,9 +3,9 @@ import { prisma } from "./prisma";
 import { putObjectLocked, putPublicProof } from "./storage";
 import { buildPublicProof } from "./public-proof";
 import { anchoredValue } from "./proof-v2";
-import { getEvidenceAnchorDeployment } from "./contract-address";
+import { getAnchorTargetDeployment } from "./contract-address";
 import { getVersionPageIndices } from "./tiles-repo";
-import { anchorRootOnChain, getOnChainAnchor, getTxOutcome } from "./polygon";
+import { anchorOnChain, defaultChainConfig, getOnChainAnchor, getTxOutcome, legacyChainConfig, type AuditHead, type ChainConfig } from "./polygon";
 import { writeAuditLog } from "./audit";
 
 export type AnchorResult =
@@ -40,7 +40,8 @@ async function publishPublicProofIfSalted(version: DocumentVersion, anchorLog: A
   try {
     const salted = await prisma.versionSaltSet.findUnique({ where: { documentVersionId: version.id }, select: { id: true } });
     if (!salted || !anchorLog.polygonTxHash) return;
-    const { chainId, address } = getEvidenceAnchorDeployment();
+    const { chainId } = getAnchorTargetDeployment();
+    const address = anchorLog.contractAddress ?? getAnchorTargetDeployment().address;
     const pageCount = (await getVersionPageIndices(version)).length;
     await putPublicProof(
       version.id,
@@ -61,64 +62,94 @@ async function publishPublicProofIfSalted(version: DocumentVersion, anchorLog: A
 
 /**
  * docs/07 P0.8: an earlier attempt may have landed on-chain without this
- * server seeing the receipt (RPC error, confirm timeout). The contract
- * refuses a second anchor, so check before spending gas on a certain revert.
- * Returns null when the version is not on-chain yet (or the read failed —
- * then the normal send path runs, as before). Throws if the chain holds a
- * DIFFERENT root for this version, or the matching tx can't be identified.
+ * server seeing the receipt (RPC error, confirm timeout). The contracts
+ * refuse a second anchor, so check before spending gas on a certain revert.
+ * Both contracts are checked (ADR-028): an attempt sent before contract v2
+ * may have landed on v1. Returns null when the version is on neither (or a
+ * read failed — then the normal send path runs, as before). Throws if a
+ * contract holds a DIFFERENT value for this version, or the matching tx
+ * can't be identified.
  */
 async function reconcileOnChainAnchor(
   version: DocumentVersion,
   actorId: string,
   sourceIp: string
 ): Promise<AnchorResult | null> {
-  let onChain;
+  const targets: ChainConfig[] = [defaultChainConfig()];
   try {
-    onChain = await getOnChainAnchor(version.id);
-  } catch (err) {
-    console.warn(`[anchor] pre-send getAnchor failed for ${version.id}, sending anyway:`, errorMessage(err));
-    return null;
+    targets.push(legacyChainConfig());
+  } catch {
+    // No v1 deployment record: nothing legacy to reconcile against.
   }
-  if (onChain.timestamp === 0) return null;
 
-  if (onChain.merkleRoot.toLowerCase() !== `0x${anchoredValue(version)}`.toLowerCase()) {
+  for (const config of targets) {
+    let onChain;
+    try {
+      onChain = await getOnChainAnchor(version.id, config);
+    } catch (err) {
+      console.warn(`[anchor] pre-send getAnchor on ${config.contractAddress} failed for ${version.id}, sending anyway:`, errorMessage(err));
+      return null;
+    }
+    if (onChain.timestamp === 0) continue;
+
+    if (onChain.merkleRoot.toLowerCase() !== `0x${anchoredValue(version)}`.toLowerCase()) {
+      throw new Error(
+        `On-chain anchor for version ${version.id} on ${config.contractAddress} holds a different value (${onChain.merkleRoot}); refusing to re-anchor.`
+      );
+    }
+
+    const attempts = await prisma.anchorLog.findMany({
+      where: { documentVersionId: version.id, submittedTxHash: { not: null } },
+      orderBy: { anchoredAt: "desc" },
+    });
+    for (const attempt of attempts) {
+      // getTxOutcome also checks the tx was sent to this contract.
+      if ((await getTxOutcome(attempt.submittedTxHash!, config)) !== "success") continue;
+      const anchorLog = await prisma.anchorLog.create({
+        data: {
+          documentVersionId: version.id,
+          chainRootHash: anchoredValue(version),
+          objectLockUri: attempt.objectLockUri,
+          polygonTxHash: attempt.submittedTxHash,
+          submittedTxHash: attempt.submittedTxHash,
+          contractAddress: config.contractAddress,
+          auditSeq: attempt.auditSeq,
+          status: "ANCHORED",
+        },
+      });
+      await writeAuditLog({
+        actorId,
+        action: "ANCHOR_COMPLETE",
+        targetId: anchorLog.id,
+        targetType: "AnchorLog",
+        targetMeta: {
+          documentVersionId: version.id,
+          polygonTxHash: attempt.submittedTxHash,
+          contractAddress: config.contractAddress,
+          reconciledFrom: attempt.id,
+        },
+        sourceIp,
+      });
+      await publishPublicProofIfSalted(version, anchorLog);
+      return { status: "ANCHORED", anchorLog };
+    }
+
     throw new Error(
-      `On-chain anchor for version ${version.id} holds a different root (${onChain.merkleRoot}); refusing to re-anchor.`
+      `Version ${version.id} is already anchored on ${config.contractAddress} (${new Date(onChain.timestamp * 1000).toISOString()}) ` +
+        "with the matching value, but no recorded transaction hash confirms it."
     );
   }
+  return null;
+}
 
-  const attempts = await prisma.anchorLog.findMany({
-    where: { documentVersionId: version.id, submittedTxHash: { not: null } },
-    orderBy: { anchoredAt: "desc" },
+/** The newest chained audit entry, carried by the anchor tx (ADR-019/020; docs/07 Phase 4). */
+async function currentAuditHead(): Promise<AuditHead | null> {
+  const last = await prisma.auditLog.findFirst({
+    where: { seq: { not: null } },
+    orderBy: { seq: "desc" },
+    select: { seq: true, entryHash: true },
   });
-  for (const attempt of attempts) {
-    if ((await getTxOutcome(attempt.submittedTxHash!)) !== "success") continue;
-    const anchorLog = await prisma.anchorLog.create({
-      data: {
-        documentVersionId: version.id,
-        chainRootHash: anchoredValue(version),
-        objectLockUri: attempt.objectLockUri,
-        polygonTxHash: attempt.submittedTxHash,
-        submittedTxHash: attempt.submittedTxHash,
-        status: "ANCHORED",
-      },
-    });
-    await writeAuditLog({
-      actorId,
-      action: "ANCHOR_COMPLETE",
-      targetId: anchorLog.id,
-      targetType: "AnchorLog",
-      targetMeta: { documentVersionId: version.id, polygonTxHash: attempt.submittedTxHash, reconciledFrom: attempt.id },
-      sourceIp,
-    });
-    await publishPublicProofIfSalted(version, anchorLog);
-    return { status: "ANCHORED", anchorLog };
-  }
-
-  throw new Error(
-    `Version ${version.id} is already anchored on-chain (${new Date(onChain.timestamp * 1000).toISOString()}) ` +
-      "with the matching root, but no recorded transaction hash confirms it."
-  );
+  return last?.seq && last.entryHash ? { seq: last.seq, head: last.entryHash } : null;
 }
 
 /**
@@ -170,12 +201,14 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
       Buffer.from(JSON.stringify(record))
     );
 
+    const target = defaultChainConfig();
     anchorLog = await prisma.anchorLog.create({
       data: {
         documentVersionId: version.id,
         chainRootHash: anchoredValue(version),
         objectLockUri,
         polygonTxHash: null,
+        contractAddress: target.contractAddress,
         status: "PENDING",
       },
     });
@@ -190,21 +223,29 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
 
     stage = "polygon";
     const pendingLogId = anchorLog.id;
-    const { txHash } = await onChainSerialized(() =>
-      anchorRootOnChain(version.id, anchoredValue(version), async (submitted) => {
-        await prisma.anchorLog.update({ where: { id: pendingLogId }, data: { submittedTxHash: submitted } });
-      })
+    // The audit head is read inside the queue, right before sending, so
+    // heads go out in rising seq order.
+    const { txHash, auditSeq } = await onChainSerialized(async () =>
+      anchorOnChain(
+        version.id,
+        anchoredValue(version),
+        await currentAuditHead(),
+        async (submitted) => {
+          await prisma.anchorLog.update({ where: { id: pendingLogId }, data: { submittedTxHash: submitted } });
+        },
+        target
+      )
     );
     anchorLog = await prisma.anchorLog.update({
       where: { id: anchorLog.id },
-      data: { polygonTxHash: txHash, status: "ANCHORED" },
+      data: { polygonTxHash: txHash, auditSeq, status: "ANCHORED" },
     });
     await writeAuditLog({
       actorId,
       action: "ANCHOR_COMPLETE",
       targetId: anchorLog.id,
       targetType: "AnchorLog",
-      targetMeta: { documentVersionId: version.id, polygonTxHash: txHash },
+      targetMeta: { documentVersionId: version.id, polygonTxHash: txHash, contractAddress: target.contractAddress, auditSeq },
       sourceIp,
     });
     await publishPublicProofIfSalted(version, anchorLog);

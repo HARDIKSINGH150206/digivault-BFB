@@ -1,16 +1,30 @@
 import { JsonRpcProvider, Network, Wallet, Contract, keccak256, toUtf8Bytes, parseUnits } from "ethers";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { getEvidenceAnchorDeployment } from "./contract-address";
+import { getAnchorTargetDeployment, getLegacyAnchorDeployment } from "./contract-address";
 
-const ABI = [
-  "function anchorRoot(bytes32 documentVersionId, bytes32 merkleRoot) external",
+/** getAnchor() has the same shape on both contracts. */
+const READ_ABI = [
   "function getAnchor(bytes32 documentVersionId) external view returns (bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
 ];
 
+/** EvidenceAnchorV2 (packages/contracts/contracts/EvidenceAnchorV2.sol), errors included so reverts decode by name. */
+export const ANCHOR_V2_ABI = [
+  "function anchor(bytes32 docId, bytes32 commitment, uint64 seq_, bytes32 head_) external",
+  "function getAnchor(bytes32 docId) external view returns (bytes32 commitment, uint256 timestamp, address anchoredBy)",
+  "function isTrusted(bytes32 docId) external view returns (bool)",
+  "function latestAuditHead() external view returns (uint64 seq, bytes32 head, uint256 timestamp)",
+  "event DocumentAnchored(bytes32 indexed docId, bytes32 commitment, uint256 timestamp, address indexed anchoredBy)",
+  "event AuditHeadAnchored(uint64 indexed seq, bytes32 head, uint256 timestamp, address indexed anchoredBy)",
+  "error NotAnchorer()",
+  "error ZeroValue()",
+  "error AlreadyAnchored(bytes32 docId)",
+  "error AuditSeqNotIncreasing(uint64 latest, uint64 given)",
+];
+
 /**
- * The contract only accepts anchorRoot() calls from its `owner` (see
- * EvidenceAnchor.sol), i.e. the same account that deployed it. Rather than
+ * Anchors are signed by an account on EvidenceAnchorV2's allow-list —
+ * today the deployer account (the first anchorer). Rather than
  * duplicating that private key into apps/web's own .env, this reads it
  * straight from packages/contracts/.env — one signer key, one place it
  * lives, same principle as the contract-address single-source-of-truth
@@ -51,8 +65,9 @@ export function rpcUrlsFromEnv(env: Record<string, string | undefined> = process
   return [...new Set(urls)];
 }
 
+/** Writes and reads against EvidenceAnchorV2, the contract every new anchor goes to. */
 export function defaultChainConfig(): ChainConfig {
-  const { address, chainId } = getEvidenceAnchorDeployment();
+  const { address, chainId } = getAnchorTargetDeployment();
   return {
     rpcUrls: rpcUrlsFromEnv(),
     chainId,
@@ -60,6 +75,12 @@ export function defaultChainConfig(): ChainConfig {
     privateKey: readDeployerPrivateKey,
     confirmTimeoutMs: Number(process.env.ANCHOR_CONFIRM_TIMEOUT_MS || 180_000),
   };
+}
+
+/** Reads against the legacy v1 contract (anchors written before contract v2). */
+export function legacyChainConfig(): ChainConfig {
+  const { address, chainId } = getLegacyAnchorDeployment();
+  return { ...defaultChainConfig(), chainId, contractAddress: address };
 }
 
 /**
@@ -148,26 +169,68 @@ export function capFees(
 }
 
 /**
- * Sends anchorRoot(keccak256(id), root). `id` is normally a document
- * version ID; scripts/audit-legacy-genesis.mjs uses its own namespaced key.
- * Waits at most confirmTimeoutMs for the receipt; on timeout the tx may
- * still land later, which lib/anchor.ts reconciles on retry.
+ * ethers doesn't decode a custom error raised while estimating gas ("unknown
+ * custom error"); decode it against the ABI so logs and AnchorLog say e.g.
+ * "AlreadyAnchored(...)". Transport errors pass through untouched (failover).
  */
-export async function anchorRootOnChain(
+function withDecodedRevert(contract: Contract, err: unknown): unknown {
+  const data = (err as { data?: string } | null)?.data;
+  if (typeof data !== "string" || data.length < 10) return err;
+  const parsed = (() => {
+    try {
+      return contract.interface.parseError(data);
+    } catch {
+      return null;
+    }
+  })();
+  if (!parsed) return err;
+  const args = parsed.args.map((a) => String(a)).join(", ");
+  return new Error(`Contract reverted: ${parsed.name}(${args})`, { cause: err });
+}
+
+export interface AuditHead {
+  seq: number;
+  /** entryHash of that audit row, 64 hex chars. */
+  head: string;
+}
+
+/**
+ * Sends EvidenceAnchorV2.anchor(keccak256(id), commitment, seq, head).
+ * `auditHead` is the latest audit-chain entry; it rides along only if its
+ * seq is above the head already on chain (the contract requires seq to
+ * rise, and a document anchor must never fail over an audit race) —
+ * otherwise seq 0 is sent and no head is recorded. Waits at most
+ * confirmTimeoutMs for the receipt; on timeout the tx may still land later,
+ * which lib/anchor.ts reconciles on retry.
+ */
+export async function anchorOnChain(
   documentVersionId: string,
-  merkleRootHex: string,
+  commitmentHex: string,
+  auditHead: AuditHead | null,
   onSubmitted?: (txHash: string) => Promise<void>,
   config: ChainConfig = defaultChainConfig()
-): Promise<{ txHash: string }> {
+): Promise<{ txHash: string; auditSeq: number | null }> {
   let submitted = false;
   return withRpcFallback(
     config.rpcUrls,
     config.chainId,
     async (provider) => {
       const wallet = new Wallet(config.privateKey(), provider);
-      const contract = new Contract(config.contractAddress, ABI, wallet);
+      const contract = new Contract(config.contractAddress, ANCHOR_V2_ABI, wallet);
+      const [onChainSeq] = await contract.latestAuditHead();
+      const withHead = auditHead !== null && BigInt(auditHead.seq) > (onChainSeq as bigint);
       const fees = capFees(await provider.getFeeData(), anchorFeeCaps());
-      const tx = await contract.anchorRoot(documentVersionIdToBytes32(documentVersionId), `0x${merkleRootHex}`, fees);
+      const tx = await contract
+        .anchor(
+          documentVersionIdToBytes32(documentVersionId),
+          `0x${commitmentHex}`,
+          withHead ? auditHead!.seq : 0,
+          withHead ? `0x${auditHead!.head}` : `0x${"0".repeat(64)}`,
+          fees
+        )
+        .catch((err: unknown) => {
+          throw withDecodedRevert(contract, err);
+        });
       submitted = true;
       if (onSubmitted) await onSubmitted(tx.hash).catch((err) => console.error("[polygon] onSubmitted failed:", err));
       let receipt;
@@ -183,13 +246,17 @@ export async function anchorRootOnChain(
         throw err;
       }
       if (!receipt || receipt.status !== 1) throw new Error(`Anchor tx ${tx.hash} reverted or returned no receipt.`);
-      return { txHash: receipt.hash };
+      return { txHash: receipt.hash, auditSeq: withHead ? auditHead!.seq : null };
     },
     () => !submitted
   );
 }
 
-/** Status of a previously sent tx: "success", "reverted", or "unknown" (not mined / not found). */
+/**
+ * Status of a previously sent tx: "success", "reverted", or "unknown" (not
+ * mined / not found). A tx that was not sent to config.contractAddress is
+ * "unknown": it cannot be the one that wrote this contract's anchor.
+ */
 export async function getTxOutcome(
   txHash: string,
   config: ChainConfig = defaultChainConfig()
@@ -197,6 +264,7 @@ export async function getTxOutcome(
   return withRpcFallback(config.rpcUrls, config.chainId, async (provider) => {
     const receipt = await provider.getTransactionReceipt(txHash);
     if (!receipt) return "unknown";
+    if ((receipt.to ?? "").toLowerCase() !== config.contractAddress.toLowerCase()) return "unknown";
     return receipt.status === 1 ? "success" : "reverted";
   });
 }
@@ -206,7 +274,7 @@ export async function getOnChainAnchor(
   config: ChainConfig = defaultChainConfig()
 ): Promise<{ merkleRoot: string; timestamp: number; anchoredBy: string }> {
   return withRpcFallback(config.rpcUrls, config.chainId, async (provider) => {
-    const contract = new Contract(config.contractAddress, ABI, provider);
+    const contract = new Contract(config.contractAddress, READ_ABI, provider);
     const [merkleRoot, timestamp, anchoredBy] = await contract.getAnchor(documentVersionIdToBytes32(documentVersionId));
     return { merkleRoot: merkleRoot as string, timestamp: Number(timestamp), anchoredBy: anchoredBy as string };
   });

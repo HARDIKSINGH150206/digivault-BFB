@@ -112,6 +112,7 @@ export async function GET(
   drawField("Previous Hash:", version.previousHash ?? "(first version)");
   drawField("MinIO Object Lock URI:", anchor?.objectLockUri ?? "(not yet anchored)");
   drawField("Polygon Amoy Tx Hash:", anchor?.polygonTxHash ?? "(not yet anchored on-chain)");
+  drawField("Anchor Contract:", anchor?.contractAddress ?? "(not yet anchored on-chain)");
   drawField("Anchored At:", anchor?.anchoredAt.toISOString() ?? "(not yet anchored)");
   drawField("Certificate Generated At:", new Date().toISOString());
   drawField("Generated For (role):", actor.role);
