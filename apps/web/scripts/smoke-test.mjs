@@ -9,7 +9,7 @@
 // Prereqs: `node prisma/seed-for-testing.mjs`, web app on E2E_BASE_URL
 // (default http://localhost:3000). No arguments.
 import sharp from "sharp";
-import { computeDocument, randomSalts } from "../../../packages/crypto-core/reference/dv2-ref.mjs";
+import { computeDocument, randomSalts, verifyRedactionProof } from "../../../packages/crypto-core/reference/dv2-ref.mjs";
 
 const BASE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const INVESTIGATOR = { serviceNumber: "DL/2019/3301", pin: "223344" };
@@ -293,6 +293,36 @@ async function main() {
       results.redacted_proof_has_no_original_salts = testPage.salts.every((s) => !leaked.has(s));
     } else {
       results.redacted_proof_has_no_original_salts = `not checked (proof ${res.status}: version not anchored)`;
+    }
+  }
+
+  // 11. Redaction proof (docs/03 §Redaction proofs): the redacted page plus
+  // the proof rebuild the ORIGINAL's commitment (checked with the reference
+  // verifier), only tile 0 is masked, and its original salt is withheld.
+  {
+    const unredacted = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${versionId}/redaction-proof`, {
+      headers: { Authorization: `Bearer ${courtToken}` },
+    });
+    results.redaction_proof_refused_for_unredacted_400 = unredacted.status === 400;
+
+    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${redactedVersionId}/redaction-proof`, {
+      headers: { Authorization: `Bearer ${courtToken}` },
+    });
+    if (res.status === 200) {
+      const proof = await res.json();
+      const pageRes = await fetch(`${BASE}/api/v1/documents/${documentId}/versions/${redactedVersionId}/pages/0`, {
+        headers: { Authorization: `Bearer ${courtToken}` },
+      });
+      const png = Buffer.from(await pageRes.arrayBuffer());
+      const check = verifyRedactionProof(proof, [await decode(png)], [png]);
+      results.redaction_proof_verifies_against_original =
+        check.problems.length === 0 && check.originalCommitment === testPage.commitment && proof.original.versionId === versionId;
+      results.redaction_proof_masks_only_tile_0 = JSON.stringify(proof.pages[0].masked) === "[0]";
+      const revealed = new Map(proof.pages[0].revealedSalts.map((s) => [s.k, s.salt]));
+      results.redaction_proof_withholds_masked_salt =
+        !revealed.has(0) && !JSON.stringify(proof).includes(testPage.salts[0]) && testPage.salts.slice(1).every((s, i) => revealed.get(i + 1) === s);
+    } else {
+      results.redaction_proof_verifies_against_original = `not checked (redaction proof ${res.status}: version not anchored)`;
     }
   }
 

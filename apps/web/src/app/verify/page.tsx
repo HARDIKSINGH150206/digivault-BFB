@@ -5,10 +5,20 @@ import "@/lib/client/buffer-polyfill";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { JsonRpcProvider, Network, Contract, Interface, keccak256, toUtf8Bytes } from "ethers";
-import { hashTiles, buildMerkleTree, type TileHash } from "@digivault/crypto-core";
+import {
+  hashTiles,
+  buildMerkleTree,
+  invalidRedactionProof,
+  REDACTION_PROOF_FORMAT,
+  tileRects,
+  type RedactionCheck,
+  type RedactionProof,
+  type TileHash,
+} from "@digivault/crypto-core";
 import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../dashboard/_workspace/shell";
 import { describeV2Mismatch, invalidProofV2, recomputeV2, type ProofFileV2 } from "./proof-v2";
+import { describeRedactionProblem, recomputeRedaction } from "./redaction";
 
 /**
  * Court Verification Portal. CLAUDE.md rule 5 / step 6 Part 3 requirements:
@@ -34,6 +44,13 @@ import { describeV2Mismatch, invalidProofV2, recomputeV2, type ProofFileV2 } fro
  *   - Certificate QR mode (ADR-022): /verify?v=<versionId>&c=<commitment>&tx=<txHash>
  *     checks the commitment and the tx against the chain only — no files,
  *     no MinIO, no backend — and says plainly that no document file was checked.
+ *   - Redaction proofs (`format: "digivault-redaction-proof/1"`, docs/03
+ *     §Redaction proofs, ./redaction.ts): the dropped redacted PNGs must
+ *     rebuild the ORIGINAL version's anchored commitment (unmasked tiles
+ *     recomputed with the original's revealed salts, masked tiles solid
+ *     mask colour with their salted leaves taken as given) AND the
+ *     redacted version's own anchored commitment. Both anchors are read
+ *     from the official contracts, never from the proof's addresses.
  *   - Three outcomes: VERIFIED; UNTRUSTED (the proof or RPC points at a
  *     chain/contract/anchorer other than DigiVault's official ones); or
  *     MISMATCH for anything else that prevents a definitive VERIFIED (bad
@@ -112,6 +129,7 @@ async function readOfficialAnchor(provider: JsonRpcProvider, official: OfficialC
 const SUPPORTED_PROOF_VERSIONS = [1, 2];
 const LEGACY_V1_LABEL = "Legacy v1 proof (unsalted)";
 const V2_LABEL = "v2 (salted tiles)";
+const REDACTION_LABEL = "Redaction proof (v2 salted tiles)";
 
 /**
  * Connects to the first reachable RPC that reports Polygon Amoy. Returns
@@ -223,10 +241,23 @@ function claimedAnchor(proof: ProofFile): string {
   return (proof.digivault_proof_version === 2 ? proof.commitment : proof.merkle_root).toLowerCase();
 }
 
+interface AnchorSummary {
+  anchoredAt: string;
+  contract: OfficialContract;
+}
+
 type Result =
   | { outcome: "idle" }
   | { outcome: "checking" }
   | { outcome: "verified"; proof: ProofFile; contract: OfficialContract }
+  | {
+      outcome: "redaction-verified";
+      proof: RedactionProof;
+      check: RedactionCheck;
+      files: File[];
+      original: AnchorSummary;
+      redacted: AnchorSummary;
+    }
   | { outcome: "untrusted"; reason: string; detail?: string }
   | { outcome: "mismatch"; reason: string; detail?: string };
 
@@ -280,10 +311,24 @@ const VERIFY_CSS = `
 .vf-facts { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-2); display: grid; gap: 8px; font-size: 13.5px; color: var(--paper-2); }
 .vf-code { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--paper); }
 .vf-detail { margin: 12px 0 0; font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--paper-3); overflow-wrap: anywhere; }
+.vf-pages { margin-top: 14px; display: grid; gap: 6px; font-size: 13.5px; color: var(--paper); }
+.vf-previews { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.vf-preview { margin: 0; }
+.vf-preview-box { position: relative; }
+.vf-preview img { display: block; width: 100%; height: auto; border: 1px solid var(--line-2); border-radius: 6px; background: #fff; }
+.vf-preview svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.vf-preview figcaption { margin-top: 4px; font-size: 12px; color: var(--paper-3); }
 .vf-spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--paper-2); animation: vf-spin 900ms linear infinite; flex: none; }
 @keyframes vf-spin { to { transform: rotate(360deg); } }
 @keyframes vf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-@media (prefers-reduced-motion: reduce) { .vf-result, .vf-spinner { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .vf-result, .vf-pages { margin-top: 14px; display: grid; gap: 6px; font-size: 13.5px; color: var(--paper); }
+.vf-previews { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.vf-preview { margin: 0; }
+.vf-preview-box { position: relative; }
+.vf-preview img { display: block; width: 100%; height: auto; border: 1px solid var(--line-2); border-radius: 6px; background: #fff; }
+.vf-preview svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.vf-preview figcaption { margin-top: 4px; font-size: 12px; color: var(--paper-3); }
+.vf-spinner { animation: none; } }
 @media (max-width: 560px) { .vf-header { padding: 0 16px; } .vf-main { padding-top: 48px; } .vf-title { font-size: 28px; } }
 `;
 
@@ -320,6 +365,33 @@ function FileDropZone({
   );
 }
 
+/** A redacted page with its masked tiles outlined. */
+function MaskedPagePreview({ file, proof, page }: { file: File; proof: RedactionProof; page: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  const p = proof.pages[page];
+  const rects = tileRects(p.width, p.height, proof.gridSize);
+  return (
+    <figure className="vf-preview">
+      <div className="vf-preview-box">
+        {url && <img src={url} alt={`Redacted page ${page + 1}`} />}
+        <svg viewBox={`0 0 ${p.width} ${p.height}`} preserveAspectRatio="none" aria-hidden="true">
+          {p.masked.map((k) =>
+            rects[k].w > 0 && rects[k].h > 0 ? (
+              <rect key={k} x={rects[k].x} y={rects[k].y} width={rects[k].w} height={rects[k].h} fill="none" stroke="#f59e0b" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            ) : null
+          )}
+        </svg>
+      </div>
+      <figcaption>Page {page + 1} · masked areas outlined</figcaption>
+    </figure>
+  );
+}
+
 export default function VerifyPage() {
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [pngFiles, setPngFiles] = useState<File[]>([]);
@@ -342,13 +414,93 @@ export default function VerifyPage() {
       );
   }, []);
 
+  /** Reads one version's anchor from the official contract the proof names (which must be official). */
+  async function officialAnchorFor(
+    provider: JsonRpcProvider,
+    v: RedactionProof["original"],
+    expected: string,
+    name: string
+  ): Promise<{ ok: AnchorSummary } | { fail: Result }> {
+    if (Number(v.anchor?.chainId) !== TRUSTED_CHAIN_ID) {
+      return { fail: { outcome: "untrusted", reason: `Invalid — the ${name} anchor references an untrusted chain.`, detail: `chain_id=${v.anchor?.chainId}` } };
+    }
+    const official = officialContract(v.anchor?.contractAddress);
+    if (!official) {
+      return { fail: { outcome: "untrusted", reason: `Invalid — the ${name} anchor references an untrusted contract.`, detail: `contract=${v.anchor?.contractAddress}` } };
+    }
+    const anchor = await readOfficialAnchor(provider, official, v.versionId);
+    if (!anchor.found) return { fail: { outcome: "mismatch", reason: `No anchor found on-chain for the ${name} version.`, detail: `version=${v.versionId}` } };
+    if (!anchor.trusted) return { fail: { outcome: "untrusted", reason: anchor.reason, detail: `${name} anchoredBy=${anchor.anchoredBy}` } };
+    if (anchor.value !== expected) {
+      return {
+        fail: {
+          outcome: "mismatch",
+          reason: `The ${name} version's commitment does not match the public Polygon Amoy record.`,
+          detail: `recomputed=${expected} on_chain=${anchor.value}`,
+        },
+      };
+    }
+    return { ok: { anchoredAt: new Date(anchor.timestamp * 1000).toISOString(), contract: official } };
+  }
+
+  async function verifyRedaction(proof: RedactionProof) {
+    if (proof.format !== REDACTION_PROOF_FORMAT) {
+      setResult({ outcome: "mismatch", reason: `Unsupported proof format (${String(proof.format)}).` });
+      return;
+    }
+    const invalid = invalidRedactionProof(proof);
+    if (invalid) throw new Error(`Redaction proof is malformed: ${invalid}.`);
+    if (certParams && ![proof.redacted.versionId, proof.original.versionId].includes(certParams.versionId)) {
+      setResult({
+        outcome: "mismatch",
+        reason: "This redaction proof is for a different document version than the certificate link.",
+        detail: `link=${certParams.versionId} proof=${proof.redacted.versionId}`,
+      });
+      return;
+    }
+
+    // 1. Local: masked tiles solid, unmasked tiles the original's, both commitments recomputed.
+    const r = await recomputeRedaction(proof, pngFiles);
+    const problem = describeRedactionProblem(proof, r);
+    if (problem) {
+      setResult({
+        outcome: "mismatch",
+        reason: problem,
+        detail: `original: recomputed=${r.check.originalCommitment} proof=${proof.original.commitment}; redacted: recomputed=${r.check.redactedCommitment} proof=${proof.redacted.commitment}`,
+      });
+      return;
+    }
+
+    // 2. Chain: both recomputed commitments against the official contracts.
+    const conn = await connectAmoy(rpcUrl);
+    if ("wrongChain" in conn) {
+      setResult({ outcome: "untrusted", reason: "Invalid — the RPC endpoint is not Polygon Amoy.", detail: conn.wrongChain });
+      return;
+    }
+    const { provider } = conn;
+    try {
+      const original = await officialAnchorFor(provider, proof.original, r.check.originalCommitment, "original");
+      if ("fail" in original) return setResult(original.fail);
+      const redacted = await officialAnchorFor(provider, proof.redacted, r.check.redactedCommitment, "redacted");
+      if ("fail" in redacted) return setResult(redacted.fail);
+      setResult({ outcome: "redaction-verified", proof, check: r.check, files: r.orderedFiles, original: original.ok, redacted: redacted.ok });
+    } finally {
+      provider.destroy();
+    }
+  }
+
   async function handleVerify() {
     setResult({ outcome: "checking" });
     try {
       if (!proofFile) throw new Error("No proof JSON file provided.");
       if (pngFiles.length === 0) throw new Error("No page PNG file(s) provided.");
 
-      const proof = JSON.parse(await proofFile.text()) as ProofFile;
+      const parsed = JSON.parse(await proofFile.text());
+      if (parsed && typeof parsed === "object" && "format" in parsed) {
+        await verifyRedaction(parsed as RedactionProof);
+        return;
+      }
+      const proof = parsed as ProofFile;
       if (!SUPPORTED_PROOF_VERSIONS.includes(Number(proof.digivault_proof_version))) {
         setResult({
           outcome: "mismatch",
@@ -554,7 +706,7 @@ export default function VerifyPage() {
           />
           <FileDropZone
             label="Proof JSON"
-            detail="Use the verification-proof.json file from the bundle."
+            detail="verification-proof.json from the bundle, or redaction-proof.json for a redacted copy."
             accept="application/json"
             filenames={proofFile ? [proofFile.name] : []}
             onChange={(files) => setProofFile(files?.[0] ?? null)}
@@ -625,6 +777,66 @@ export default function VerifyPage() {
               <a href={`https://amoy.polygonscan.com/address/${result.contract.address}`} target="_blank" rel="noreferrer" className="vf-code">
                 {result.contract.label} {shortHash(result.contract.address)}
               </a>
+            </div>
+          </div>
+        )}
+
+        {result.outcome === "redaction-verified" && (
+          <div className="result-card vf-result vf-ok" role="status" data-testid="redaction-verified">
+            <div className="vf-result-row">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" fill="#10b981" />
+                <path d="m7 12 3 3 7-7" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <div>
+                <h2>Verified redacted copy - matches the original public blockchain record</h2>
+                <p style={{ color: "var(--paper)" }}>
+                  Apart from the masked areas, these pages are the original document anchored on {result.original.anchoredAt.slice(0, 10)}, unchanged.
+                </p>
+              </div>
+            </div>
+            <div className="vf-pages" data-testid="redaction-pages">
+              {result.check.pages.map((p) => (
+                <div key={p.page}>
+                  {p.tileCount - p.maskedCount} of {p.tileCount} tiles on page {p.page + 1} are byte-identical to the original anchored on{" "}
+                  {result.original.anchoredAt.slice(0, 10)} · {p.maskedCount} masked · nothing else changed
+                </div>
+              ))}
+            </div>
+            <div className="vf-previews">
+              {result.files.map((f, i) => (
+                <MaskedPagePreview key={i} file={f} proof={result.proof} page={i} />
+              ))}
+            </div>
+            <div className="vf-facts">
+              <div>original version: <code className="vf-code">{result.proof.original.versionId}</code> (v{result.proof.original.versionNo})</div>
+              <div>original commitment: <code title={result.proof.original.commitment} className="vf-code">{shortHash(result.proof.original.commitment)}</code></div>
+              <div>
+                original anchor:{" "}
+                <a href={`https://amoy.polygonscan.com/tx/${result.proof.original.anchor.txHash}`} target="_blank" rel="noreferrer" className="vf-code">
+                  {shortHash(result.proof.original.anchor.txHash)}
+                </a>{" "}
+                on {result.original.contract.label}, {result.original.anchoredAt}
+              </div>
+              <div>redacted version: <code className="vf-code">{result.proof.redacted.versionId}</code> (v{result.proof.redacted.versionNo})</div>
+              <div>redacted commitment: <code title={result.proof.redacted.commitment} className="vf-code">{shortHash(result.proof.redacted.commitment)}</code></div>
+              <div>
+                redacted anchor:{" "}
+                <a href={`https://amoy.polygonscan.com/tx/${result.proof.redacted.anchor.txHash}`} target="_blank" rel="noreferrer" className="vf-code">
+                  {shortHash(result.proof.redacted.anchor.txHash)}
+                </a>{" "}
+                on {result.redacted.contract.label}, {result.redacted.anchoredAt}
+              </div>
+              <div data-testid="proof-format">
+                proof format: <code className="vf-code">{REDACTION_LABEL}</code>
+              </div>
+            </div>
+            <div className="vf-official">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3.5 19 6.3v5.2c0 4.4-2.8 7.5-7 9-4.2-1.5-7-4.6-7-9V6.3l7-2.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="m9 12 2 2 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Verified against official DigiVault contract
             </div>
           </div>
         )}

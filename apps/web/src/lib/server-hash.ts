@@ -7,6 +7,8 @@ import {
   assembleDocumentV2,
   fileHashOfPngs,
   hashPageV2,
+  tileRects,
+  DEFAULT_MASK_COLOR,
   type DocumentHashV2,
   type PageHashV2,
   type TileHash,
@@ -35,7 +37,7 @@ interface DecodedPage {
   pixels: Buffer;
 }
 
-async function decodePagePng(pngBytes: Buffer, pageIndex: number): Promise<DecodedPage> {
+export async function decodePagePng(pngBytes: Buffer, pageIndex: number): Promise<DecodedPage> {
   const { data, info } = await sharp(pngBytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   if (info.channels !== 4) {
     throw new Error(`Expected 4 channels (RGBA) after ensureAlpha(), got ${info.channels}`);
@@ -155,35 +157,28 @@ export async function recomputeDocumentHashesV2(
   return assembleDocumentV2(gridSize, pages, await fileHashOfPngs(pagePngBuffers.map((b) => new Uint8Array(b))));
 }
 
-/** Re-renders a page's PNG with opaque black rectangles over the given tile regions (redaction). */
+/**
+ * Redacts a page: fills the given tiles with the solid mask colour
+ * (opaque black, DEFAULT_MASK_COLOR) directly in the decoded RGBA and
+ * re-encodes losslessly at the same size (ADR-023). Every other pixel is
+ * copied unchanged, which is what lets a redaction proof show the copy is
+ * the original except for the masked tiles (docs/03 §Redaction proofs). No
+ * compositing: blending premultiplies alpha and could alter pixels that
+ * aren't fully opaque.
+ */
 export async function redactPagePng(
   pngBytes: Buffer,
   gridSize: number,
   tilesToMask: { row: number; col: number }[]
 ): Promise<Buffer> {
-  const metadata = await sharp(pngBytes).metadata();
-  const width = metadata.width!;
-  const height = metadata.height!;
-  const tileW = Math.ceil(width / gridSize);
-  const tileH = Math.ceil(height / gridSize);
-
-  const rects = tilesToMask
-    .map(({ row, col }) => {
-      const x = col * tileW;
-      const y = row * tileH;
-      const w = Math.min(tileW, width - x);
-      const h = Math.min(tileH, height - y);
-      if (w <= 0 || h <= 0) return "";
-      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="black"/>`;
-    })
-    .join("");
-
-  const overlaySvg = Buffer.from(
-    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`
-  );
-
-  return sharp(pngBytes)
-    .composite([{ input: overlaySvg, top: 0, left: 0 }])
-    .png()
-    .toBuffer();
+  const page = await decodePagePng(pngBytes, 0);
+  const rects = tileRects(page.width, page.height, gridSize);
+  for (const { row, col } of tilesToMask) {
+    const r = rects[row * gridSize + col];
+    if (!r || r.row !== row || r.col !== col) throw new Error(`Tile R${row}C${col} is outside a ${gridSize}x${gridSize} grid.`);
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let x = r.x; x < r.x + r.w; x++) page.pixels.set(DEFAULT_MASK_COLOR, (y * page.width + x) * 4);
+    }
+  }
+  return sharp(page.pixels, { raw: { width: page.width, height: page.height, channels: 4 } }).png().toBuffer();
 }

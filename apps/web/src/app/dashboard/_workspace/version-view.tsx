@@ -305,6 +305,21 @@ export function WorkspaceVersionView() {
     }
   }
 
+  // Redacted versions only. Downloaded on its own, never alongside the
+  // original's verification bundle: that would hand over the masked tiles'
+  // original salts (docs/07 Phase 3).
+  async function handleRedactionProof() {
+    setMessage(null);
+    try {
+      const res = await apiFetch(`${base}/redaction-proof`);
+      const proof = await res.json();
+      if (!res.ok) throw new Error(proof.message ?? "The redaction proof is not available yet.");
+      triggerDownload(new Blob([JSON.stringify(proof, null, 2)], { type: "application/json" }), "redaction-proof.json");
+    } catch (err) {
+      setMessage({ kind: "error", text: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   async function handleCertificate() {
     setMessage(null);
     let headers: Record<string, string> | null;
@@ -571,6 +586,16 @@ export function WorkspaceVersionView() {
                       <p className="ws-row-note" style={{ margin: "-4px 0 0" }}>
                         The proof file and page images. Anyone can check them at <Link href="/verify" style={{ color: "var(--paper)", textDecoration: "underline", textUnderlineOffset: 3 }}>/verify</Link> without an account.
                       </p>
+                      {info.is_redacted && (
+                        <>
+                          <button type="button" className="ws-secondary" onClick={handleRedactionProof}>
+                            <Icon name="download" size={18} /> Download redaction proof
+                          </button>
+                          <p className="ws-row-note" style={{ margin: "-4px 0 0" }}>
+                            With these page images, shows the copy is the original anchored document except for the masked areas. Both versions must be anchored.
+                          </p>
+                        </>
+                      )}
                     </>
                   ) : (
                     <p className="ws-row-note" style={{ margin: 0 }}>The verification bundle is available once this version is anchored.</p>

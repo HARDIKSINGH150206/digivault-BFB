@@ -52,11 +52,11 @@ export function invalidProofV2(p: ProofFileV2): string | null {
 }
 
 /** Natural order, so page-10.png sorts after page-9.png. */
-function byFilename(a: File, b: File): number {
+export function byFilename(a: File, b: File): number {
   return a.name.localeCompare(b.name, undefined, { numeric: true });
 }
 
-async function decodeRgba(bytes: ArrayBuffer): Promise<{ width: number; height: number; rgba: Uint8ClampedArray }> {
+export async function decodeRgba(bytes: ArrayBuffer): Promise<{ width: number; height: number; rgba: Uint8ClampedArray }> {
   // No colour-space conversion or premultiplication, so the pixels are the
   // PNG's own bytes — the same raw decode the server does with sharp.
   const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }), {

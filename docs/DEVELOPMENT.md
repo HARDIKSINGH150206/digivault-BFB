@@ -83,7 +83,7 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | API smoke test | `cd apps/web && node scripts/smoke-test.mjs` |
 | UI e2e (login, case, upload) | `cd apps/web && node scripts/e2e-part1.mjs` |
 | UI e2e (step-up, redaction, cert, share) | `cd apps/web && node scripts/e2e-part2.mjs` |
-| UI e2e (`/verify` against real Amoy anchor) | `cd apps/web && node scripts/e2e-part3.mjs` |
+| UI e2e (`/verify` against real Amoy anchor, incl. redaction proofs) | `cd apps/web && node scripts/e2e-part3.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
 | Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check the legacy-rows anchor on Polygon |
