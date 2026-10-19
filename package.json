@@ -5,6 +5,10 @@
   "engines": {
     "node": ">=20"
   },
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "audit:verify": "node apps/web/scripts/verify-audit-chain.mjs"
+  },
   "prisma": {
     "schema": "prisma/schema.prisma"
   },
@@ -14,6 +18,7 @@
   },
   "devDependencies": {
     "prisma": "^5.20.0",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "vitest": "2.1.9"
   }
 }

@@ -2,9 +2,9 @@
 
 import "@/lib/client/buffer-polyfill";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { JsonRpcProvider, Contract, keccak256, toUtf8Bytes } from "ethers";
+import { JsonRpcProvider, Network, Contract, Interface, keccak256, toUtf8Bytes } from "ethers";
 import { hashTiles, buildMerkleTree, type TileHash } from "@digivault/crypto-core";
 import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../dashboard/_workspace/shell";
@@ -22,6 +22,12 @@ import { BrandMark } from "../dashboard/_workspace/shell";
  *     could otherwise point it at their own contract holding any root.
  *   - MinIO is deliberately never checked here — it's the insider-threat
  *     anchor, not something an external verifier should need to trust.
+ *   - Proof formats: `digivault_proof_version: 1` is verified on a read-only
+ *     legacy path and labelled "Legacy v1 proof (unsalted)" (ADR-021). Any
+ *     other version is refused until its verifier exists (docs/07 Phase 1/3).
+ *   - Certificate QR mode (ADR-022): /verify?v=<versionId>&c=<commitment>&tx=<txHash>
+ *     checks the commitment and the tx against the chain only — no files,
+ *     no MinIO, no backend — and says plainly that no document file was checked.
  *   - Three outcomes: VERIFIED; UNTRUSTED (the proof or RPC points at a
  *     chain/contract/anchorer other than DigiVault's official ones); or
  *     MISMATCH for anything else that prevents a definitive VERIFIED (bad
@@ -35,9 +41,103 @@ const TRUSTED_CHAIN_ID = 80002;
 const TRUSTED_ANCHORER = "0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873";
 
 const DEFAULT_RPC_URL = process.env.NEXT_PUBLIC_AMOY_RPC_URL || "https://polygon-amoy.drpc.org";
+// Tried in order when the RPC field is left at its default; a user-entered
+// endpoint is used on its own.
+const FALLBACK_RPC_URLS = ["https://rpc-amoy.polygon.technology"];
 const ANCHOR_ABI = [
   "function getAnchor(bytes32 documentVersionId) external view returns (bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
+  "event RootAnchored(bytes32 indexed documentVersionId, bytes32 merkleRoot, uint256 timestamp, address anchoredBy)",
 ];
+const SUPPORTED_PROOF_VERSIONS = [1];
+const LEGACY_V1_LABEL = "Legacy v1 proof (unsalted)";
+
+/**
+ * Connects to the first reachable RPC that reports Polygon Amoy. Returns
+ * "wrong-chain" if an endpoint answers for another chain (reported as
+ * UNTRUSTED, not retried), throws if none is reachable.
+ */
+async function connectAmoy(rpcUrl: string): Promise<{ provider: JsonRpcProvider } | { wrongChain: string }> {
+  const urls = rpcUrl === DEFAULT_RPC_URL ? [rpcUrl, ...FALLBACK_RPC_URLS.filter((u) => u !== rpcUrl)] : [rpcUrl];
+  let lastErr: unknown;
+  for (const url of urls) {
+    const provider = new JsonRpcProvider(url, Network.from(TRUSTED_CHAIN_ID), { batchMaxCount: 1, staticNetwork: true });
+    try {
+      const chainId = Number(await provider.send("eth_chainId", []));
+      if (chainId !== TRUSTED_CHAIN_ID) return { wrongChain: `rpc chain_id=${chainId} expected=${TRUSTED_CHAIN_ID}` };
+      return { provider };
+    } catch (err) {
+      lastErr = err;
+      provider.destroy();
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("No Polygon RPC endpoint reachable.");
+}
+
+interface CertificateParams {
+  versionId: string;
+  commitment: string;
+  txHash: string;
+}
+
+type CertificateResult =
+  | { outcome: "checking" }
+  | { outcome: "anchored"; anchoredAt: string; blockNumber: number }
+  | { outcome: "untrusted" | "mismatch"; reason: string; detail?: string };
+
+function readCertificateParams(): CertificateParams | null {
+  if (typeof window === "undefined") return null;
+  const q = new URLSearchParams(window.location.search);
+  const versionId = q.get("v");
+  const commitment = q.get("c")?.toLowerCase().replace(/^0x/, "");
+  const txHash = q.get("tx")?.toLowerCase();
+  if (!versionId || !commitment || !txHash) return null;
+  return { versionId, commitment, txHash };
+}
+
+/** Chain-only check of a certificate's (versionId, commitment, txHash). Never touches files, MinIO or the backend. */
+async function checkCertificate(params: CertificateParams, rpcUrl: string): Promise<CertificateResult> {
+  if (!/^[0-9a-f]{64}$/.test(params.commitment) || !/^0x[0-9a-f]{64}$/.test(params.txHash)) {
+    return { outcome: "mismatch", reason: "The verification link is malformed." };
+  }
+  const conn = await connectAmoy(rpcUrl);
+  if ("wrongChain" in conn) return { outcome: "untrusted", reason: "Invalid — the RPC endpoint is not Polygon Amoy.", detail: conn.wrongChain };
+  const { provider } = conn;
+  try {
+    const key = keccak256(toUtf8Bytes(params.versionId));
+    const contract = new Contract(TRUSTED_CONTRACT, ANCHOR_ABI, provider);
+    const [rootRaw, timestamp, anchoredBy] = await contract.getAnchor(key);
+    const onChainRoot = (rootRaw as string).replace(/^0x/, "").toLowerCase();
+    if (onChainRoot === "0".repeat(64)) return { outcome: "mismatch", reason: "No anchor found on-chain for this document version." };
+    if ((anchoredBy as string).toLowerCase() !== TRUSTED_ANCHORER.toLowerCase()) {
+      return { outcome: "untrusted", reason: "Invalid — anchor was not written by the official DigiVault account.", detail: `anchoredBy=${anchoredBy}` };
+    }
+    if (onChainRoot !== params.commitment) {
+      return { outcome: "mismatch", reason: "The certificate's commitment does not match the public blockchain record.", detail: `certificate=${params.commitment} on_chain=${onChainRoot}` };
+    }
+
+    // The tx named on the certificate must be the one that wrote this anchor.
+    const receipt = await provider.getTransactionReceipt(params.txHash);
+    if (!receipt || receipt.status !== 1) return { outcome: "mismatch", reason: "The transaction on the certificate was not found or failed." };
+    if ((receipt.to ?? "").toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) {
+      return { outcome: "untrusted", reason: "Invalid — the certificate's transaction was not sent to the official contract.", detail: `to=${receipt.to}` };
+    }
+    const iface = new Interface(ANCHOR_ABI);
+    const wroteThisAnchor = receipt.logs.some((log) => {
+      if (log.address.toLowerCase() !== TRUSTED_CONTRACT.toLowerCase()) return false;
+      const parsed = iface.parseLog(log);
+      return (
+        parsed?.name === "RootAnchored" &&
+        String(parsed.args.documentVersionId).toLowerCase() === key.toLowerCase() &&
+        String(parsed.args.merkleRoot).replace(/^0x/, "").toLowerCase() === params.commitment
+      );
+    });
+    if (!wroteThisAnchor) return { outcome: "mismatch", reason: "The certificate's transaction did not write this anchor." };
+
+    return { outcome: "anchored", anchoredAt: new Date(Number(timestamp) * 1000).toISOString(), blockNumber: receipt.blockNumber };
+  } finally {
+    provider.destroy();
+  }
+}
 
 interface ProofFile {
   digivault_proof_version: number;
@@ -70,54 +170,53 @@ function shortHash(value: string): string {
 const VERIFY_CSS = `
 .vf { min-height: 100vh; background: var(--ink); color: var(--paper); }
 .vf *, .vf *::before, .vf *::after { box-sizing: border-box; }
-.vf-header { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 28px; background: rgba(10,10,10,0.8); border-bottom: 1px solid var(--line); }
-.vf-home { display: inline-flex; align-items: center; gap: 12px; color: var(--paper); text-decoration: none; }
-.vf-home:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
-.vf-header-link { margin-left: auto; font-size: 14px; color: var(--paper-3); text-decoration: none; }
+.vf a:focus-visible, .vf button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.vf-header { height: 60px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--ink); border-bottom: 1px solid var(--line-2); }
+.vf-home { display: inline-flex; align-items: center; gap: 10px; color: var(--paper); text-decoration: none; }
+.vf-header-link { margin-left: auto; font-size: 14px; color: var(--paper-3); text-decoration: none; transition: color 120ms ease; }
 .vf-header-link:hover { color: var(--paper); }
-.vf-brand-name { font-family: var(--font-display); font-weight: 500; font-size: 20px; letter-spacing: -0.4px; line-height: 1.1; }
-.vf-brand-sub { font-size: 12.5px; color: var(--paper-3); margin-top: 1px; }
-.vf-main { max-width: 700px; margin: 0 auto; padding: 56px 20px 64px; }
-.vf-eyebrow { margin: 0 0 10px; font-size: 14px; font-weight: 500; color: var(--brand); }
-.vf-title { margin: 0; font-family: var(--font-display); font-size: clamp(32px, 5vw, 44px); font-weight: 500; letter-spacing: -1.4px; line-height: 1.08; }
-.vf-lede { margin: 10px 0 0; font-size: 16px; line-height: 1.55; color: var(--paper-3); }
-.vf-card { margin-top: 30px; padding: 22px; background: var(--ink-2); border: 0; border-radius: 20px; box-shadow: var(--shadow-card); display: grid; gap: 14px; }
-.vf-drop { display: flex; align-items: center; gap: 14px; padding: 18px; border: 1.5px dashed var(--line-3); border-radius: 14px; background: var(--ink); cursor: pointer;
+.vf-brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.02em; line-height: 1.1; }
+.vf-brand-sub { margin-top: 2px; font-family: var(--font-mono), monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--paper-4); }
+.vf-main { max-width: 640px; margin: 0 auto; padding: 72px 20px 80px; }
+.vf-eyebrow { margin: 0 0 14px; font-family: var(--font-mono), monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-4); }
+.vf-title { margin: 0; font-size: clamp(30px, 4.6vw, 40px); font-weight: 500; letter-spacing: -0.025em; line-height: 1.1; }
+.vf-lede { margin: 12px 0 0; font-size: 15.5px; line-height: 1.6; color: var(--paper-3); }
+.vf-card { margin-top: 36px; padding: 20px; border: 1px solid var(--line-2); border-radius: 12px; display: grid; gap: 12px; }
+.vf-drop { display: flex; align-items: center; gap: 14px; padding: 16px; border: 1px dashed var(--line-3); border-radius: 10px; cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease; }
-.vf-drop:hover { border-color: var(--brand); background: var(--brand-soft); }
+.vf-drop:hover { border-color: var(--paper-3); background: var(--ink-3); }
 .vf-drop:focus-within { outline: 2px solid var(--brand); outline-offset: 2px; }
-.vf-drop-icon { width: 44px; height: 44px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; flex: none; }
-.vf-drop-label { display: block; font-size: 15px; font-weight: 600; color: var(--paper); }
-.vf-drop-detail { display: block; margin-top: 2px; font-size: 13.5px; color: var(--paper-3); }
-.vf-drop-files { display: block; margin-top: 6px; font-size: 12.5px; color: var(--brand); overflow-wrap: anywhere; }
+.vf-drop-icon { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line-2); color: var(--paper-2); display: grid; place-items: center; flex: none; }
+.vf-drop-label { display: block; font-size: 14.5px; font-weight: 500; color: var(--paper); }
+.vf-drop-detail { display: block; margin-top: 2px; font-size: 13px; color: var(--paper-3); }
+.vf-drop-files { display: block; margin-top: 6px; font-family: var(--font-mono), monospace; font-size: 12px; color: var(--paper-2); overflow-wrap: anywhere; }
 .vf-drop-empty { display: block; margin-top: 6px; font-size: 12.5px; color: var(--paper-4); }
-.vf-advanced { justify-self: start; background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--brand); cursor: pointer; }
-.vf-advanced:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
-.vf-input { display: block; width: 100%; margin-top: 6px; height: 42px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 10px; font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--paper); background: var(--ink); }
-.vf-input:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
-.vf-primary { height: 46px; border: 0; border-radius: 999px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-lift); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; transition: background-color 120ms ease; }
-.vf-primary:hover:not(:disabled) { background: #ffffff; }
-.vf-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ink-2), 0 0 0 4px var(--brand); }
-.vf-primary:disabled { background: var(--ink-4); color: var(--paper-4); box-shadow: none; cursor: not-allowed; }
-.vf-result { margin-top: 20px; padding: 20px; border-radius: 18px; border: 1px solid; animation: vf-in 180ms ease-out; }
+.vf-advanced { justify-self: start; background: none; border: 0; padding: 2px 0; font: inherit; font-size: 13px; font-weight: 500; color: var(--paper-3); cursor: pointer; transition: color 120ms ease; }
+.vf-advanced:hover { color: var(--paper); }
+.vf-input { display: block; width: 100%; margin-top: 6px; height: 40px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 10px; font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--paper); background: var(--ink-3); }
+.vf-input:focus-visible { outline: none; border-color: var(--paper-3); box-shadow: 0 0 0 3px rgba(242,239,233,0.08); }
+.vf-primary { height: 44px; margin-top: 4px; border: 1px solid var(--paper); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; transition: background-color 120ms ease; }
+.vf-primary:hover:not(:disabled) { background: #ffffff; border-color: #ffffff; }
+.vf-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.vf-result { margin-top: 16px; padding: 18px 20px; border-radius: 12px; border: 1px solid; animation: vf-in 180ms ease-out; }
 .vf-result-row { display: flex; gap: 14px; align-items: center; }
-.vf-result h2 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.3px; }
-.vf-result p { margin: 4px 0 0; font-size: 14px; }
-.vf-ok { background: var(--ok-soft); border-color: var(--ok-line); }
+.vf-result h2 { margin: 0; font-size: 17px; font-weight: 500; letter-spacing: -0.01em; }
+.vf-result p { margin: 4px 0 0; font-size: 14px; color: var(--paper-2); }
+.vf-ok { border-color: var(--ok-line); }
 .vf-ok h2 { color: var(--ok); }
 .vf-bad { background: var(--danger-soft); border-color: var(--danger-line); }
 .vf-bad h2 { color: var(--danger); }
-.vf-checking { background: var(--ink-2); border-color: var(--line); }
-.vf-untrusted { border-width: 2px; border-color: var(--danger); background: #1a0b0b; }
-.vf-official { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--ok-line); background: var(--ok-soft); color: var(--ok); font-size: 12.5px; font-weight: 500; }
-.vf-facts { margin-top: 14px; display: grid; gap: 6px; font-size: 13.5px; color: var(--paper); }
-.vf-code { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--brand); }
+.vf-checking { border-color: var(--line-2); }
+.vf-untrusted { border-color: var(--danger); background: var(--danger-soft); }
+.vf-official { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--ok-line); color: var(--ok); font-size: 12.5px; font-weight: 500; }
+.vf-facts { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-2); display: grid; gap: 8px; font-size: 13.5px; color: var(--paper-2); }
+.vf-code { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--paper); }
 .vf-detail { margin: 12px 0 0; font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--paper-3); overflow-wrap: anywhere; }
-.vf-spinner { width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--brand); animation: vf-spin 900ms linear infinite; flex: none; }
+.vf-spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--paper-2); animation: vf-spin 900ms linear infinite; flex: none; }
 @keyframes vf-spin { to { transform: rotate(360deg); } }
 @keyframes vf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .vf-result, .vf-spinner { animation: none; } }
-@media (max-width: 560px) { .vf-header { padding: 0 16px; } .vf-title { font-size: 27px; } }
+@media (max-width: 560px) { .vf-header { padding: 0 16px; } .vf-main { padding-top: 48px; } .vf-title { font-size: 28px; } }
 `;
 
 function FileDropZone({
@@ -159,6 +258,21 @@ export default function VerifyPage() {
   const [rpcUrl, setRpcUrl] = useState(DEFAULT_RPC_URL);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [result, setResult] = useState<Result>({ outcome: "idle" });
+  const [certParams, setCertParams] = useState<CertificateParams | null>(null);
+  const [certResult, setCertResult] = useState<CertificateResult | null>(null);
+
+  // Certificate QR link: check the anchor straight away, chain only.
+  useEffect(() => {
+    const params = readCertificateParams();
+    if (!params) return;
+    setCertParams(params);
+    setCertResult({ outcome: "checking" });
+    checkCertificate(params, DEFAULT_RPC_URL)
+      .then(setCertResult)
+      .catch((err) =>
+        setCertResult({ outcome: "mismatch", reason: "The blockchain record could not be checked.", detail: err instanceof Error ? err.message : String(err) })
+      );
+  }, []);
 
   async function handleVerify() {
     setResult({ outcome: "checking" });
@@ -169,6 +283,21 @@ export default function VerifyPage() {
       const proof = JSON.parse(await proofFile.text()) as ProofFile;
       if (!proof.merkle_root || !proof.document_version_id) {
         throw new Error("Proof file is missing required fields.");
+      }
+      if (!SUPPORTED_PROOF_VERSIONS.includes(Number(proof.digivault_proof_version))) {
+        setResult({
+          outcome: "mismatch",
+          reason: `Unsupported proof format (digivault_proof_version ${proof.digivault_proof_version}).`,
+        });
+        return;
+      }
+      if (certParams && certParams.versionId !== proof.document_version_id) {
+        setResult({
+          outcome: "mismatch",
+          reason: "This proof file is for a different document version than the certificate link.",
+          detail: `link=${certParams.versionId} proof=${proof.document_version_id}`,
+        });
+        return;
       }
 
       // 0. The proof's own contract/chain fields are never used for the
@@ -212,16 +341,12 @@ export default function VerifyPage() {
       // record directly — the only source of truth that matters here.
       // The RPC endpoint is user-editable (advanced options), so confirm it
       // actually serves Polygon Amoy before trusting anything it returns.
-      const provider = new JsonRpcProvider(rpcUrl);
-      const { chainId } = await provider.getNetwork();
-      if (Number(chainId) !== TRUSTED_CHAIN_ID) {
-        setResult({
-          outcome: "untrusted",
-          reason: "Invalid — the RPC endpoint is not Polygon Amoy.",
-          detail: `rpc chain_id=${chainId} expected=${TRUSTED_CHAIN_ID}`,
-        });
+      const conn = await connectAmoy(rpcUrl);
+      if ("wrongChain" in conn) {
+        setResult({ outcome: "untrusted", reason: "Invalid — the RPC endpoint is not Polygon Amoy.", detail: conn.wrongChain });
         return;
       }
+      const { provider } = conn;
       const contract = new Contract(TRUSTED_CONTRACT, ANCHOR_ABI, provider);
       const documentVersionIdBytes32 = keccak256(toUtf8Bytes(proof.document_version_id));
       const [onChainRootRaw, , anchoredBy] = await contract.getAnchor(documentVersionIdBytes32);
@@ -290,6 +415,49 @@ export default function VerifyPage() {
         <h1 className="vf-title">Court Document Verification</h1>
         <p className="vf-lede">Independent verification - no account required, no connection to DigiVault servers.</p>
 
+        {certParams && certResult && (
+          <div
+            className={`result-card vf-result ${certResult.outcome === "anchored" ? "vf-ok" : certResult.outcome === "checking" ? "vf-checking" : "vf-bad"}`}
+            role="status"
+            data-testid="certificate-check"
+          >
+            {certResult.outcome === "checking" && (
+              <div className="vf-result-row">
+                <span className="vf-spinner" aria-hidden="true" />
+                <strong>Checking the certificate against the blockchain record...</strong>
+              </div>
+            )}
+            {certResult.outcome === "anchored" && (
+              <>
+                <h2>Certificate commitment is anchored on the public blockchain</h2>
+                <p style={{ color: "var(--paper)" }}>
+                  The commitment and transaction on this certificate match the official DigiVault record. No document file has been
+                  checked yet — add the page images and proof file below to verify the document itself.
+                </p>
+                <div className="vf-facts">
+                  <div>document_version_id: <code className="vf-code">{certParams.versionId}</code></div>
+                  <div>commitment: <code title={certParams.commitment} className="vf-code">{shortHash(certParams.commitment)}</code></div>
+                  <div>
+                    transaction:{" "}
+                    <a href={`https://amoy.polygonscan.com/tx/${certParams.txHash}`} target="_blank" rel="noreferrer" className="vf-code">
+                      {shortHash(certParams.txHash)}
+                    </a>{" "}
+                    (block {certResult.blockNumber})
+                  </div>
+                  <div>anchored_at: <code className="vf-code">{certResult.anchoredAt}</code></div>
+                </div>
+              </>
+            )}
+            {(certResult.outcome === "untrusted" || certResult.outcome === "mismatch") && (
+              <>
+                <h2>{certResult.outcome === "untrusted" ? certResult.reason : "Certificate does not match the blockchain record"}</h2>
+                {certResult.outcome === "mismatch" && <p style={{ color: "var(--paper)" }}>{certResult.reason}</p>}
+                {certResult.detail && <p className="vf-detail">{certResult.detail}</p>}
+              </>
+            )}
+          </div>
+        )}
+
         <div className="vf-card">
           <FileDropZone
             label="Redacted PNG page(s)"
@@ -352,6 +520,9 @@ export default function VerifyPage() {
                 </a>
               </div>
               <div>anchored_at: <code className="vf-code">{result.proof.anchor.anchored_at}</code></div>
+              {Number(result.proof.digivault_proof_version) === 1 && (
+                <div data-testid="proof-format">proof format: <code className="vf-code">{LEGACY_V1_LABEL}</code></div>
+              )}
             </div>
             <div className="vf-official">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">

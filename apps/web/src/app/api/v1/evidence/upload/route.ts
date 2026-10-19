@@ -4,7 +4,7 @@ import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { recomputeDocumentHashes } from "@/lib/server-hash";
 import { putPagePng } from "@/lib/storage";
 import { computeChainHash } from "@/lib/chain-hash";
-import { replaceDocumentTiles } from "@/lib/tiles-repo";
+import { createVersionTiles } from "@/lib/tiles-repo";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { requestRedactionSuggestions } from "@/lib/ai-service";
 import { persistSuggestionsAsFlags } from "@/lib/redaction-suggestions-repo";
@@ -201,7 +201,7 @@ export async function POST(req: Request): Promise<Response> {
   });
 
   await prisma.document.update({ where: { id: documentId }, data: { currentVersionId: version.id } });
-  await replaceDocumentTiles(documentId, serverComputed.tiles);
+  await createVersionTiles(documentId, version.id, serverComputed.tiles);
 
   // Hashes verified, pages stored, tiles written: the version is READY.
   // Anchor state is tracked separately on AnchorLog, so an anchor failure
@@ -235,7 +235,7 @@ export async function POST(req: Request): Promise<Response> {
         pngBytes: pageBuffers[i],
       }))
     );
-    await persistSuggestionsAsFlags(documentId, suggestions);
+    await persistSuggestionsAsFlags(version.id, suggestions);
   } catch (err) {
     console.error(`[upload] ai-service call failed for version ${version.id}, continuing without suggestions:`, err);
   }

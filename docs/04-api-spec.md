@@ -259,6 +259,12 @@ The portal is public, stateless, and makes **zero calls to DigiVault's backend**
 
 When the contract is redeployed, update those constants in `apps/web/src/app/verify/page.tsx` together with `packages/contracts/deployments/amoy.json`.
 
+**Proof versions (ADR-021):** `digivault_proof_version: 1` is verified on a read-only legacy path and labelled "Legacy v1 proof (unsalted)". Other versions are refused until their verifier ships (v2: `docs/07` Phase 1/3).
+
+**Certificate link (ADR-022):** `/verify?v=<document_version_id>&c=<commitment hex>&tx=<polygon tx hash>`, built from `PUBLIC_BASE_URL` and returned as `public_verify_url` by `GET .../versions/{versionId}` once anchored. The portal checks, against the chain only: `getAnchor(keccak256(v)).merkleRoot == c`, `anchoredBy` is the official account, and tx `tx` succeeded, targeted the official contract and emitted `RootAnchored(keccak256(v), c)`. It reports "commitment anchored", never "document verified". If a proof file is also dropped, its `document_version_id` must equal `v`.
+
+**Public proof file (ADR-022):** for salted (v2+) versions only, a redaction-safe subset of this schema — `digivault_proof_version`, `public: true`, `document_version_id`, `merkle_root`, `grid_size`, `page_count`, `is_redacted`, `anchor`, `verify_url`; no `pages`, no `tiles`, no salts — is published write-once to `<MINIO_PUBLIC_URL>/digivault-public-proofs/proofs/<document_version_id>.json`.
+
 ---
 
 ## 6. Certificate, proof and page downloads
@@ -315,5 +321,5 @@ Share recipients have no account, but `actorId` is a required FK to `User`. So s
 - ~~`chain_hash` formula~~ — resolved: `chain_hash = SHA256(previous_hash + merkle_root + version_no + timestamp)`, per project decision (see endpoint 3).
 - ~~The anchor flow's async/poll shape~~ — resolved: anchoring is automatic and runs in the background after upload/confirm; the UI polls (endpoint 4). A job queue would be needed for serverless or multi-instance deployments.
 - Step-up via the PIN fallback is always accepted, so step-up is only as strong as the PIN — open decision whether to restrict it to users with no registered authenticator.
-- If an anchor transaction lands but the server never sees the receipt, the row is `FAILED` and a retry is rejected on-chain ("already anchored"). Open: check `getAnchor()` before retrying and mark such rows `ANCHORED`.
+- ~~Anchor tx lands but the server never sees the receipt~~ — resolved (docs/07 P0.8, ADR-025): the tx hash is recorded when sent, and every anchor attempt checks `getAnchor()` first; a matching on-chain root with a successful recorded tx is marked `ANCHORED` without a new send.
 - Redaction confirm (endpoint 3) requires the server to redraw PNG pages with masked regions — Node has no DOM `<canvas>`, so the backend will need a headless canvas library (e.g. `@napi-rs/canvas` or `sharp`) as a new dependency. Not a spec problem, but a step-4 backend decision this doc's contract assumes is solvable.

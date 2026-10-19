@@ -28,16 +28,16 @@ type Phase = "idle" | "hashing" | "uploading" | "error";
 
 const UPLOAD_CSS = `
 .ws-upload { max-width: 760px; }
-.ws-drop { margin-top: 6px; display: grid; justify-items: center; gap: 8px; padding: 36px 20px; border: 1.5px dashed var(--line-3); border-radius: 12px;
-  background: var(--ink); text-align: center; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease; }
-.ws-drop:hover, .ws-drop-active { border-color: var(--brand); background: var(--brand-soft); }
+.ws-drop { margin-top: 6px; display: grid; justify-items: center; gap: 8px; padding: 36px 20px; border: 1px dashed var(--line-3); border-radius: 12px;
+  background: transparent; text-align: center; cursor: pointer; transition: border-color 120ms ease, background-color 120ms ease; }
+.ws-drop:hover, .ws-drop-active { border-color: var(--paper-3); background: var(--ink-3); }
 .ws-drop:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.ws-drop-icon { width: 48px; height: 48px; border-radius: 12px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; }
-.ws-drop-title { font-size: 15.5px; font-weight: 600; color: var(--paper); }
+.ws-drop-icon { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line-2); color: var(--paper-2); display: grid; place-items: center; }
+.ws-drop-title { font-size: 15px; font-weight: 500; color: var(--paper); }
 .ws-drop-sub { font-size: 13.5px; color: var(--paper-3); }
-.ws-file { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink-2); font-size: 14px; }
+.ws-file { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px; font-size: 14px; }
 .ws-upload-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-.ws-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--brand); animation: ws-spin 800ms linear infinite; flex: none; }
+.ws-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--paper-2); animation: ws-spin 800ms linear infinite; flex: none; }
 @keyframes ws-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ws-spinner { animation: none; } }
 `;

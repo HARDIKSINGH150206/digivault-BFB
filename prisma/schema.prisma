@@ -39,22 +39,22 @@ enum AnchorStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  role         Role
-  department   String
-  authIdentity String   @unique
+  id            String   @id @default(cuid())
+  role          Role
+  department    String
+  authIdentity  String   @unique
   // Nullable so the migration can run over pre-existing users; a user with
   // no serviceNumber/pinHash simply cannot log in until re-seeded.
   serviceNumber String?  @unique
   pinHash       String?
-  mfaStatus    Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  mfaStatus     Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
-  casesCreated Case[]             @relation("CaseCreatedBy")
-  uploads      DocumentVersion[]
-  auditEntries AuditLog[]
-  sharesCreated      DocumentShare[]   @relation("ShareCreatedBy")
-  redactionsReviewed RedactionFlag[]   @relation("RedactionReviewer")
+  casesCreated        Case[]               @relation("CaseCreatedBy")
+  uploads             DocumentVersion[]
+  auditEntries        AuditLog[]
+  sharesCreated       DocumentShare[]      @relation("ShareCreatedBy")
+  redactionsReviewed  RedactionFlag[]      @relation("RedactionReviewer")
   webauthnCredentials WebAuthnCredential[]
 }
 
@@ -69,28 +69,32 @@ model WebAuthnCredential {
 }
 
 model Case {
-  id         String   @id @default(cuid())
-  caseNumber String   @unique
-  caseType   String
-  status     String
-  department String
-  createdBy  User     @relation("CaseCreatedBy", fields: [createdById], references: [id])
-  createdById String
-  createdAt  DateTime @default(now())
+  id              String    @id @default(cuid())
+  caseNumber      String    @unique
+  caseType        String
+  status          String
+  department      String
+  createdBy       User      @relation("CaseCreatedBy", fields: [createdById], references: [id])
+  createdById     String
+  createdAt       DateTime  @default(now())
+  // BNSS s.193(2) deadline tracking (docs/07 Phase 7). Both optional:
+  // existing cases have neither, and the deadline clock only runs when set.
+  firRegisteredAt DateTime?
+  offenceSections String[]  @default([]) // e.g. "BNS 64", "POCSO 4"
 
   documents Document[]
 }
 
 model Document {
-  id                String             @id @default(cuid())
-  case              Case               @relation(fields: [caseId], references: [id])
-  caseId            String
-  title             String
-  docType           String
-  sourceType        DocumentSourceType
-  uploaderId        String
-  currentVersionId  String?
-  createdAt         DateTime           @default(now())
+  id               String             @id @default(cuid())
+  case             Case               @relation(fields: [caseId], references: [id])
+  caseId           String
+  title            String
+  docType          String
+  sourceType       DocumentSourceType
+  uploaderId       String
+  currentVersionId String?
+  createdAt        DateTime           @default(now())
 
   versions DocumentVersion[]
   tiles    Tile[]
@@ -115,62 +119,81 @@ model DocumentVersion {
   timestamp    DateTime       @default(now())
 
   anchors AnchorLog[]
+  tiles   Tile[]
+  salts   VersionSaltSet?
 
   @@unique([documentId, versionNo])
 }
 
 model Tile {
-  id              String   @id @default(cuid())
-  document        Document @relation(fields: [documentId], references: [id])
-  documentId      String
-  tileIndex       Int
-  pageIndex       Int
-  row             Int
-  col             Int
-  tileHash        String
-  merkleLeafIndex Int
+  id                String           @id @default(cuid())
+  document          Document         @relation(fields: [documentId], references: [id])
+  documentId        String
+  // The version these tile hashes belong to. Nullable only because rows
+  // written before per-version tiles (ADR-024) for superseded versions were
+  // already deleted; the migration backfills current-version rows, and all
+  // new rows set it. See lib/tiles-repo.ts.
+  documentVersion   DocumentVersion? @relation(fields: [documentVersionId], references: [id])
+  documentVersionId String?
+  tileIndex         Int
+  pageIndex         Int
+  row               Int
+  col               Int
+  tileHash          String
+  merkleLeafIndex   Int
 
   redactionFlags RedactionFlag[]
+
+  @@unique([documentVersionId, tileIndex])
 }
 
 model RedactionFlag {
-  id              String   @id @default(cuid())
-  tile            Tile     @relation(fields: [tileId], references: [id])
+  id              String    @id @default(cuid())
+  tile            Tile      @relation(fields: [tileId], references: [id])
   tileId          String
-  entityType      String   // e.g. "victim_name", "phone", "address"
+  entityType      String // e.g. "victim_name", "phone", "address"
   confidenceScore Float
-  masked          Boolean  @default(false)
-  source          String   // "text_layer" | "bhashini_ocr" | "indicner"
-  reviewedBy   String?
-  reviewedAt   DateTime?
-  reviewer     User?     @relation("RedactionReviewer", fields: [reviewedBy], references: [id])
+  masked          Boolean   @default(false)
+  source          String // "text_layer" | "bhashini_ocr" | "indicner"
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  reviewer        User?     @relation("RedactionReviewer", fields: [reviewedBy], references: [id])
 }
 
 // Insert-only by convention — application layer must never expose
 // update/delete for this model. Enforce with a DB-level REVOKE on the
 // app's connection role as well; do not rely on Prisma alone for this.
 model AuditLog {
-  id        String   @id @default(cuid())
-  actor     User     @relation(fields: [actorId], references: [id])
-  actorId   String
-  action    String
-  targetId  String
+  id         String   @id @default(cuid())
+  actor      User     @relation(fields: [actorId], references: [id])
+  actorId    String
+  action     String
+  targetId   String
   targetType String?
   targetMeta Json?
-  timestamp DateTime @default(now())
-  sourceIp  String
+  timestamp  DateTime @default(now())
+  sourceIp   String
+  // Hash chain (ADR-020, docs/07 P0.4). Set at INSERT by lib/audit.ts —
+  // the app role can't UPDATE this table. NULL on rows written before the
+  // chain existed; the chain starts at seq 1 with prevHash = 64 zeros.
+  seq        Int?     @unique
+  prevHash   String?
+  entryHash  String?
 }
 
 model AnchorLog {
-  id                String           @id @default(cuid())
-  documentVersion    DocumentVersion @relation(fields: [documentVersionId], references: [id])
-  documentVersionId  String
-  chainRootHash      String
-  anchoredAt         DateTime        @default(now())
-  objectLockUri      String
-  polygonTxHash       String?
-  status             AnchorStatus    @default(PENDING)
-  errorMessage       String?
+  id                String          @id @default(cuid())
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id])
+  documentVersionId String
+  chainRootHash     String
+  anchoredAt        DateTime        @default(now())
+  objectLockUri     String
+  polygonTxHash     String?
+  // Hash of the tx as soon as it is sent, before the receipt. Lets a retry
+  // recognise an anchor that landed even though this attempt saw an error.
+  submittedTxHash   String?
+  status            AnchorStatus    @default(PENDING)
+  errorMessage      String?
 }
 
 model DocumentShare {
@@ -186,4 +209,23 @@ model DocumentShare {
   viewCount      Int       @default(0)
   revokedAt      DateTime?
   createdAt      DateTime  @default(now())
+}
+
+// Per-tile leaf salts for one version (ADR-018), encrypted as one blob:
+// AES-256-GCM over the 32-byte salts concatenated in tileIndex order, with
+// "<documentVersionId>|<tileCount>" as associated data so a blob can't be
+// moved to another version. Salts are evidence — losing them makes the
+// version's anchored commitment unverifiable — so the app role has UPDATE
+// and DELETE revoked (migration 20261018130000_tile_salts). Masked-tile
+// salts never leave the server (lib/tile-salts.ts: revealableSalts).
+model VersionSaltSet {
+  id                String          @id @default(cuid())
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id])
+  documentVersionId String          @unique
+  tileCount         Int
+  keyId             String
+  iv                Bytes
+  ciphertext        Bytes
+  authTag           Bytes
+  createdAt         DateTime        @default(now())
 }

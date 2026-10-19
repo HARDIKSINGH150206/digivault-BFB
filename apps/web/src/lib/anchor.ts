@@ -1,7 +1,10 @@
-import type { AnchorLog } from "@prisma/client";
+import type { AnchorLog, DocumentVersion } from "@prisma/client";
 import { prisma } from "./prisma";
-import { putObjectLocked } from "./storage";
-import { anchorRootOnChain } from "./polygon";
+import { putObjectLocked, putPublicProof } from "./storage";
+import { buildPublicProof } from "./public-proof";
+import { getEvidenceAnchorDeployment } from "./contract-address";
+import { getVersionPageIndices } from "./tiles-repo";
+import { anchorRootOnChain, getOnChainAnchor, getTxOutcome } from "./polygon";
 import { writeAuditLog } from "./audit";
 
 export type AnchorResult =
@@ -27,6 +30,98 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * ADR-022: once a SALTED (v2+) version is anchored, publish its
+ * redaction-safe public proof. v1 versions are legacy (ADR-021) and get no
+ * new public proof. Never throws — publication is a convenience on top of
+ * the anchor, not part of it.
+ */
+async function publishPublicProofIfSalted(version: DocumentVersion, anchorLog: AnchorLog): Promise<void> {
+  try {
+    const salted = await prisma.versionSaltSet.findUnique({ where: { documentVersionId: version.id }, select: { id: true } });
+    if (!salted || !anchorLog.polygonTxHash) return;
+    const { chainId, address } = getEvidenceAnchorDeployment();
+    const pageCount = (await getVersionPageIndices(version)).length;
+    await putPublicProof(
+      version.id,
+      buildPublicProof({
+        proofVersion: 2,
+        documentVersionId: version.id,
+        // Phase 1 replaces this with the commitment C = H(0x03 ‖ fileHash ‖ R).
+        commitment: version.merkleRoot,
+        gridSize: version.gridSize,
+        pageCount,
+        isRedacted: version.isRedacted,
+        anchor: { chainId, contractAddress: address, txHash: anchorLog.polygonTxHash, anchoredAt: anchorLog.anchoredAt },
+      })
+    );
+  } catch (err) {
+    console.error(`[anchor] public proof not published for ${version.id}:`, errorMessage(err));
+  }
+}
+
+/**
+ * docs/07 P0.8: an earlier attempt may have landed on-chain without this
+ * server seeing the receipt (RPC error, confirm timeout). The contract
+ * refuses a second anchor, so check before spending gas on a certain revert.
+ * Returns null when the version is not on-chain yet (or the read failed —
+ * then the normal send path runs, as before). Throws if the chain holds a
+ * DIFFERENT root for this version, or the matching tx can't be identified.
+ */
+async function reconcileOnChainAnchor(
+  version: DocumentVersion,
+  actorId: string,
+  sourceIp: string
+): Promise<AnchorResult | null> {
+  let onChain;
+  try {
+    onChain = await getOnChainAnchor(version.id);
+  } catch (err) {
+    console.warn(`[anchor] pre-send getAnchor failed for ${version.id}, sending anyway:`, errorMessage(err));
+    return null;
+  }
+  if (onChain.timestamp === 0) return null;
+
+  if (onChain.merkleRoot.toLowerCase() !== `0x${version.merkleRoot}`.toLowerCase()) {
+    throw new Error(
+      `On-chain anchor for version ${version.id} holds a different root (${onChain.merkleRoot}); refusing to re-anchor.`
+    );
+  }
+
+  const attempts = await prisma.anchorLog.findMany({
+    where: { documentVersionId: version.id, submittedTxHash: { not: null } },
+    orderBy: { anchoredAt: "desc" },
+  });
+  for (const attempt of attempts) {
+    if ((await getTxOutcome(attempt.submittedTxHash!)) !== "success") continue;
+    const anchorLog = await prisma.anchorLog.create({
+      data: {
+        documentVersionId: version.id,
+        chainRootHash: version.merkleRoot,
+        objectLockUri: attempt.objectLockUri,
+        polygonTxHash: attempt.submittedTxHash,
+        submittedTxHash: attempt.submittedTxHash,
+        status: "ANCHORED",
+      },
+    });
+    await writeAuditLog({
+      actorId,
+      action: "ANCHOR_COMPLETE",
+      targetId: anchorLog.id,
+      targetType: "AnchorLog",
+      targetMeta: { documentVersionId: version.id, polygonTxHash: attempt.submittedTxHash, reconciledFrom: attempt.id },
+      sourceIp,
+    });
+    await publishPublicProofIfSalted(version, anchorLog);
+    return { status: "ANCHORED", anchorLog };
+  }
+
+  throw new Error(
+    `Version ${version.id} is already anchored on-chain (${new Date(onChain.timestamp * 1000).toISOString()}) ` +
+      "with the matching root, but no recorded transaction hash confirms it."
+  );
+}
+
+/**
  * Dual anchor for one document version (CLAUDE.md rule 3): the merkle root
  * goes to MinIO first, then to EvidenceAnchor on Polygon Amoy. Each attempt
  * is its own AnchorLog row (PENDING -> ANCHORED | FAILED), so retries keep
@@ -38,7 +133,7 @@ function errorMessage(err: unknown): string {
  */
 export async function anchorVersion(versionId: string, actorId: string, sourceIp: string): Promise<AnchorResult> {
   let anchorLog: AnchorLog | null = null;
-  let stage: "lookup" | "minio" | "polygon" = "lookup";
+  let stage: "lookup" | "reconcile" | "minio" | "polygon" = "lookup";
   try {
     const version = await prisma.documentVersion.findUnique({ where: { id: versionId } });
     if (!version) throw new Error(`Document version ${versionId} not found.`);
@@ -50,6 +145,10 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
       orderBy: { anchoredAt: "desc" },
     });
     if (existing) return { status: "ANCHORED", anchorLog: existing };
+
+    stage = "reconcile";
+    const reconciled = await reconcileOnChainAnchor(version, actorId, sourceIp);
+    if (reconciled) return reconciled;
 
     stage = "minio";
     const objectLockUri = await putObjectLocked(
@@ -76,7 +175,12 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
     });
 
     stage = "polygon";
-    const { txHash } = await onChainSerialized(() => anchorRootOnChain(version.id, version.merkleRoot));
+    const pendingLogId = anchorLog.id;
+    const { txHash } = await onChainSerialized(() =>
+      anchorRootOnChain(version.id, version.merkleRoot, async (submitted) => {
+        await prisma.anchorLog.update({ where: { id: pendingLogId }, data: { submittedTxHash: submitted } });
+      })
+    );
     anchorLog = await prisma.anchorLog.update({
       where: { id: anchorLog.id },
       data: { polygonTxHash: txHash, status: "ANCHORED" },
@@ -89,6 +193,7 @@ export async function anchorVersion(versionId: string, actorId: string, sourceIp
       targetMeta: { documentVersionId: version.id, polygonTxHash: txHash },
       sourceIp,
     });
+    await publishPublicProofIfSalted(version, anchorLog);
     return { status: "ANCHORED", anchorLog };
   } catch (err) {
     const message = errorMessage(err);

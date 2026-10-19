@@ -70,7 +70,7 @@ const VERSION_CSS = `
 .wsv-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; margin-top: 24px; align-items: start; }
 .wsv-side { display: grid; gap: 16px; position: sticky; top: 92px; }
 @media (max-width: 1100px) { .wsv-grid { grid-template-columns: minmax(0, 1fr); } .wsv-side { position: static; } }
-.wsv-viewer { background: var(--ink-3); border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: grid; gap: 24px; justify-items: center; }
+.wsv-viewer { background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 12px; padding: 24px; display: grid; gap: 24px; justify-items: center; }
 .wsv-page { position: relative; width: 100%; max-width: 760px; background: #FFFFFF; box-shadow: 0 30px 80px -30px rgba(0,0,0,0.8); border-radius: 4px; overflow: hidden; }
 .wsv-page img { display: block; width: 100%; height: auto; }
 .wsv-page-label { font-size: 12.5px; color: var(--paper-3); margin-top: -14px; }
@@ -85,20 +85,21 @@ const VERSION_CSS = `
 .wsv-status { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
 .wsv-status:first-of-type { border-top: 0; }
 .wsv-status-icon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; }
-.wsv-status-title { font-size: 14.5px; font-weight: 600; }
+.wsv-status-title { font-size: 14px; font-weight: 500; }
 .wsv-status-text { font-size: 13.5px; color: var(--paper-3); margin-top: 2px; }
 .wsv-details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
-.wsv-details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--brand); list-style-position: inside; }
+.wsv-details summary { cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--paper-2); list-style-position: inside; }
+.wsv-details summary:hover { color: var(--paper); }
 .wsv-details summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
 .wsv-hash { display: grid; gap: 3px; margin-top: 12px; }
-.wsv-hash-label { font-size: 12.5px; color: var(--paper-3); }
-.wsv-hash-value { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--paper); overflow-wrap: anywhere; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.wsv-hash-label { font-size: 12px; color: var(--paper-4); }
+.wsv-hash-value { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--paper); overflow-wrap: anywhere; background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 8px; }
 .wsv-sugg-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .wsv-sugg { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
 .wsv-sugg input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--brand); flex: none; }
 .wsv-sugg label { display: grid; gap: 3px; font-size: 13.5px; color: var(--paper-3); cursor: pointer; }
-.wsv-sugg-type { font-size: 14.5px; font-weight: 600; color: var(--paper); }
-.wsv-sugg-count { margin-left: 6px; font-size: 12.5px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; padding: 1px 8px; }
+.wsv-sugg-type { font-size: 14px; font-weight: 500; color: var(--paper); }
+.wsv-sugg-count { margin-left: 6px; font-family: var(--font-mono), monospace; font-size: 12px; font-weight: 500; color: var(--warn); border: 1px solid var(--warn-line); border-radius: 6px; padding: 1px 6px; }
 .wsv-actions { display: grid; gap: 10px; margin-top: 14px; }
 .wsv-confirm { margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--danger-soft); border: 1px solid var(--danger-line); }
 .wsv-confirm p { margin: 0 0 12px; font-size: 14px; color: var(--paper); line-height: 1.5; }
@@ -435,7 +436,7 @@ export function WorkspaceVersionView() {
                         {anchored && info.anchor ? (
                           <>
                             {formatDateTime(info.anchor.anchored_at)} ·{" "}
-                            <a href={`https://amoy.polygonscan.com/tx/${info.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: "var(--brand)" }}>
+                            <a href={`https://amoy.polygonscan.com/tx/${info.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: "var(--paper)", textDecoration: "underline", textUnderlineOffset: 3 }}>
                               View transaction
                             </a>
                           </>
@@ -559,7 +560,7 @@ export function WorkspaceVersionView() {
                         <Icon name="download" size={18} /> Download verification bundle
                       </button>
                       <p className="ws-row-note" style={{ margin: "-4px 0 0" }}>
-                        The proof file and page images. Anyone can check them at <Link href="/verify" style={{ color: "var(--brand)" }}>/verify</Link> without an account.
+                        The proof file and page images. Anyone can check them at <Link href="/verify" style={{ color: "var(--paper)", textDecoration: "underline", textUnderlineOffset: 3 }}>/verify</Link> without an account.
                       </p>
                     </>
                   ) : (
