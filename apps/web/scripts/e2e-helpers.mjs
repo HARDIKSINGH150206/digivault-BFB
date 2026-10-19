@@ -107,15 +107,28 @@ export async function addVirtualAuthenticator(context, page) {
   });
 }
 
-/** Passes the dialog with WebAuthn, enrolling (with the PIN) the first time. */
+/**
+ * Passes the dialog with WebAuthn, enrolling (with the PIN) the first time.
+ * If the account already has a passkey from an earlier run, this run's
+ * virtual authenticator can't answer for it and the assertion fails; the
+ * test then takes the same "New device?" path an officer with a new phone
+ * would, and registers this authenticator.
+ */
 export function stepUpWithBiometric(pin = INVESTIGATING_OFFICER.pin) {
   return async (page) => {
     await page.waitForSelector("text=Verify your identity");
     await page.click('[role=dialog] button:has-text("Use fingerprint / Face ID")');
     const enroll = page.locator("text=No fingerprint / Face ID is set up");
+    const newDevice = page.locator('[role=dialog] button:has-text("New device?")');
     const closed = page.locator("text=Verify your identity");
-    await Promise.race([enroll.waitFor(), closed.waitFor({ state: "detached" })]);
-    if (await enroll.isVisible().catch(() => false)) {
+    // A failed assertion can take up to the WebAuthn timeout (60 s) to surface.
+    const timeout = 90000;
+    await Promise.race([enroll.waitFor({ timeout }), newDevice.waitFor({ timeout }), closed.waitFor({ state: "detached", timeout })]);
+    if (await newDevice.isVisible().catch(() => false)) {
+      await newDevice.click();
+      await page.fill("#step-up-pin", pin);
+      await page.click('button:has-text("Register fingerprint / Face ID")');
+    } else if (await enroll.isVisible().catch(() => false)) {
       await page.fill("#step-up-pin", pin);
       await page.click('button:has-text("Register fingerprint / Face ID")');
     }

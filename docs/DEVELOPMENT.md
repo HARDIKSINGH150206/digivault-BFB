@@ -144,5 +144,4 @@ The smoke and e2e scripts need the web app running (and the AI service for parts
 | Anchoring fails at the `minio` stage: "does not have Object Lock enabled" | `MINIO_ANCHOR_BUCKET` points at a bucket created without locking. Use a new bucket name; the app creates it with locking. |
 | Permission errors writing `AuditLog` updates | Expected — `digivault_app` is insert-only on that table. |
 | Upload or redaction returns `503 SERVER_MISCONFIGURED` | `SALT_ENCRYPTION_KEY` is missing or not 32 bytes of base64 in `apps/web/.env.local` (`openssl rand -base64 32`). Restart the dev server after adding it. Never change it once salted versions exist — back it up. |
-| e2e part 2 times out waiting for "No fingerprint / Face ID is set up" | The test investigator still has a passkey from an earlier run, held by a virtual authenticator that no longer exists. Part 2 expects to enrol a fresh one: delete that user's `WebAuthnCredential` row(s) on the dev DB (`DL/2019/3301`) and rerun. |
 | OCR ignores Kannada | Install `tesseract-ocr-kan`; the service logs a warning naming missing language packs on its first OCR call. |
