@@ -182,6 +182,19 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 
 ---
 
+## ADR-030 — Audit-log anchoring: schedule, records, refusal, verification
+**Status:** Accepted (2026-10-19), implemented (Phase 4); live Amoy run pending POL
+**Context:** docs/07 Phase 4: anchor the audit head every 6 h on its own, skipped when nothing is new; keep a MinIO copy; a check and an admin view. Left open: where the schedule runs, how a standalone anchor is recorded without making the next run never skip, what to do when the database disagrees with the chain, and how a full rewrite (all hashes recomputed) is located.
+**Decision:**
+- The schedule runs inside the Next.js server (`src/instrumentation.ts`, `lib/audit-anchor.ts`), every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6, `0` = off), first run one interval after start. It shares the document-anchor send queue, and reads both heads inside it.
+- Standalone anchors are recorded in a new `AuditHeadAnchor` table (PENDING → ANCHORED/FAILED; `DELETE` revoked for the app role), not in the audit log: an audit row per anchor would always leave a newer, unanchored head. A manual anchor by an admin *is* audited (`AUDIT_HEAD_ANCHOR_REQUESTED`) before it runs, so the head it anchors includes the request.
+- The MinIO copy is `audit-heads/seq-<n>.json` in the Object-Locked anchor bucket.
+- Anchoring is refused when the database chain doesn't verify, or when its entry at the seq on chain differs from the anchored head — otherwise it would vouch for a rewritten log.
+- Checks compare the database with every head anchored: `latestAuditHead()` plus the `AuditHeadAnchored` event of every recorded tx (standalone and carried by document anchors). An edited row is named by the chain check; a rewrite is located between the last matching anchored head and the first mismatching one.
+**Consequences:** Entries after the last anchored head (at most one interval, or until the next document anchor) can still be rewritten undetected — documented in docs/ARCHITECTURE §8. A rewrite can only be located to the span between two anchored heads. The schedule assumes one long-running Node server (like background document anchoring). About 4 standalone anchors a day at ~0.003 POL when there is activity.
+
+---
+
 ## Template
 
 ```

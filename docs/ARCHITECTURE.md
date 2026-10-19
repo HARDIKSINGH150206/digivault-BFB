@@ -79,7 +79,7 @@ Sections marked **(v2)** describe planned state; everything else is current code
 - Serves only the newest `READY` redacted version; otherwise `403 NO_REDACTED_VERSION`.
 
 ### 3.6 (v2) Redaction proof, audit anchoring, certificate QR
-Redaction proofs (Phase 3, done; docs/03 §Redaction proofs): the verifier proves a redacted copy against the *original* commitment using revealed salts for unmasked tiles and given salted leaves for masked tiles. See `docs/07` Phases 4–5 for the rest: audit-chain heads ride along with each anchor and every 6 h; the certificate QR points at a public Object-Locked proof object in MinIO.
+Redaction proofs (Phase 3, done; docs/03 §Redaction proofs): the verifier proves a redacted copy against the *original* commitment using revealed salts for unmasked tiles and given salted leaves for masked tiles. Audit anchoring (Phase 4, done; ADR-030): audit-chain heads ride along with each document anchor and are anchored on their own every 6 h, with an admin view at `/dashboard/audit`. See `docs/07` Phase 5 for the rest: the certificate QR points at a public Object-Locked proof object in MinIO.
 
 ## 4. Data model (Prisma)
 
@@ -114,7 +114,7 @@ Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C
 | External attacker | Alter a stored page in MinIO | Recomputed root ≠ on-chain anchor | ✅ |
 | Corrupt officer | Upload a doctored file and claim it's original | Anchored at upload time; chain shows any later version | ✅ (detects later change, not pre-upload forgery) |
 | Corrupt admin with DB access | Rewrite tile hashes / roots in Postgres | Anchors on chain; `/verify` never reads DB | ✅ |
-| Corrupt admin with DB owner role | Edit or delete audit rows | Audit hash chain (✅ P0.4) + anchored heads (🔜 Phase 4) | partial |
+| Corrupt admin with DB owner role | Edit, delete or rewrite audit rows | Audit hash chain (P0.4) + heads anchored with every document anchor and every 6 h (Phase 4, ADR-030); `pnpm audit:verify --onchain` and `/dashboard/audit` | ✅ up to the last anchored head |
 | Malicious proof author | Point verifier at their own contract | Contract/chain/anchorer hardcoded (F-02) | ✅ |
 | Proof forger | Second-preimage via inner-node-as-leaf / duplicated leaf | RFC 6962 domain separation, no duplication; size fixed by the grid (ADR-027) | ✅ v2 (Phase 1); v1 legacy read-only |
 | Curious recipient of redacted copy | Brute-force masked tile content from its hash | Per-tile 32-byte salts; redacted versions get fresh salts | ✅ salts (Phase 1), redaction proofs withhold masked tiles' salts (Phase 3) |
@@ -133,10 +133,9 @@ Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C
 | Gap | Impact | Fix |
 |---|---|---|
 | Anchor records written before P0.2 are in the unlocked evidence bucket | Only newer anchors are WORM-protected in MinIO | — (on-chain anchor still covers them) |
-| Audit chain not yet anchored externally | DB owner can rewrite the whole chain consistently | v2 Phase 4 |
+| Audit entries after the last anchored head | A DB owner can rewrite them consistently until the next anchor (≤ 6 h, or the next document anchor) | Documented limit (ADR-030) |
 | 261 audit rows predate the chain (`seq` NULL) | Covered by the anchored `AUDIT_LEGACY_GENESIS` digest (ADR-026), not by per-row links | done |
 | v1 `chainHash` concatenates fields without separators | Theoretical input ambiguity, legacy versions only | done for new versions (v2 chain hash, Phase 1) |
 | v1 Merkle tree has no leaf/inner-node domain separation | Proof-forgery ambiguity, legacy versions only (`docs/03`) | done for new versions (v2, Phase 1) |
-| Audit heads are carried by document anchors only | No standalone periodic head anchoring or admin view yet | v2 Phase 4 |
 | Anchor signing key read from `packages/contracts/.env` | Key on disk | Contract v2 rotation; HSM roadmap |
 | PIN fallback always accepted for step-up | Step-up only as strong as the PIN | Open (`docs/04`) |

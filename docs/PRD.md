@@ -101,8 +101,8 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 |---|---|---|
 | FR-40 | Share links (expiry, view cap, revoke) serve only the newest redacted version | ✅ |
 | FR-41 | Insert-only `AuditLog` for the app DB role | ✅ |
-| FR-42 | Audit log hash chain with sequence numbers | 🔜 Phase 0 |
-| FR-43 | Audit head anchored with every document anchor + every 6 h; admin verification page | 🔜 Phase 4 |
+| FR-42 | Audit log hash chain with sequence numbers | ✅ Phase 0 |
+| FR-43 | Audit head anchored with every document anchor + every 6 h; admin verification page | ✅ Phase 4 (live Amoy run pending) |
 | FR-50 | Public `/verify`: no login, no backend call, hardcoded trusted contract | ✅ |
 | FR-51 | `/verify` handles v1 legacy proofs and v2 proofs | 🔜 Phase 0/1 |
 | FR-52 | Pre-filled, unsigned BSA s.63 certificate | ✅ |

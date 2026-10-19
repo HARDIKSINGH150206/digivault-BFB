@@ -11,6 +11,7 @@ const READ_ABI = [
 /** EvidenceAnchorV2 (packages/contracts/contracts/EvidenceAnchorV2.sol), errors included so reverts decode by name. */
 export const ANCHOR_V2_ABI = [
   "function anchor(bytes32 docId, bytes32 commitment, uint64 seq_, bytes32 head_) external",
+  "function anchorAuditHead(uint64 seq_, bytes32 head_) external",
   "function getAnchor(bytes32 docId) external view returns (bytes32 commitment, uint256 timestamp, address anchoredBy)",
   "function isTrusted(bytes32 docId) external view returns (bool)",
   "function latestAuditHead() external view returns (uint64 seq, bytes32 head, uint256 timestamp)",
@@ -277,5 +278,92 @@ export async function getOnChainAnchor(
     const contract = new Contract(config.contractAddress, READ_ABI, provider);
     const [merkleRoot, timestamp, anchoredBy] = await contract.getAnchor(documentVersionIdToBytes32(documentVersionId));
     return { merkleRoot: merkleRoot as string, timestamp: Number(timestamp), anchoredBy: anchoredBy as string };
+  });
+}
+
+/** The audit head EvidenceAnchorV2 holds now (seq 0 = none yet). */
+export async function getOnChainAuditHead(
+  config: ChainConfig = defaultChainConfig()
+): Promise<{ seq: number; head: string; timestamp: number }> {
+  return withRpcFallback(config.rpcUrls, config.chainId, async (provider) => {
+    const contract = new Contract(config.contractAddress, ANCHOR_V2_ABI, provider);
+    const [seq, head, timestamp] = await contract.latestAuditHead();
+    return { seq: Number(seq), head: (head as string).slice(2), timestamp: Number(timestamp) };
+  });
+}
+
+/**
+ * Sends EvidenceAnchorV2.anchorAuditHead(seq, head) (docs/07 Phase 4). The
+ * caller checks the seq is above the one on chain; the contract reverts
+ * otherwise (AuditSeqNotIncreasing). Same fee caps, fallback and confirm
+ * timeout as anchorOnChain.
+ */
+export async function anchorAuditHeadOnChain(
+  auditHead: AuditHead,
+  onSubmitted?: (txHash: string) => Promise<void>,
+  config: ChainConfig = defaultChainConfig()
+): Promise<{ txHash: string; blockNumber: number }> {
+  let submitted = false;
+  return withRpcFallback(
+    config.rpcUrls,
+    config.chainId,
+    async (provider) => {
+      const wallet = new Wallet(config.privateKey(), provider);
+      const contract = new Contract(config.contractAddress, ANCHOR_V2_ABI, wallet);
+      const fees = capFees(await provider.getFeeData(), anchorFeeCaps());
+      const tx = await contract.anchorAuditHead(auditHead.seq, `0x${auditHead.head}`, fees).catch((err: unknown) => {
+        throw withDecodedRevert(contract, err);
+      });
+      submitted = true;
+      if (onSubmitted) await onSubmitted(tx.hash).catch((err) => console.error("[polygon] onSubmitted failed:", err));
+      let receipt;
+      try {
+        receipt = await tx.wait(1, config.confirmTimeoutMs);
+      } catch (err) {
+        if ((err as { code?: string }).code === "TIMEOUT") {
+          throw new Error(`Audit head tx ${tx.hash} not confirmed within ${config.confirmTimeoutMs} ms. It may still be mined.`);
+        }
+        throw err;
+      }
+      if (!receipt || receipt.status !== 1) throw new Error(`Audit head tx ${tx.hash} reverted or returned no receipt.`);
+      return { txHash: receipt.hash, blockNumber: receipt.blockNumber };
+    },
+    () => !submitted
+  );
+}
+
+/**
+ * The audit head a mined tx recorded, read from its AuditHeadAnchored
+ * event — works for anchorAuditHead and for document anchors that carried
+ * a head. Null when the tx isn't mined, wasn't sent to this contract, or
+ * recorded no head.
+ */
+export async function getAuditHeadFromTx(
+  txHash: string,
+  config: ChainConfig = defaultChainConfig()
+): Promise<{ seq: number; head: string; timestamp: number; blockNumber: number } | null> {
+  return withRpcFallback(config.rpcUrls, config.chainId, async (provider) => {
+    const receipt = await provider.getTransactionReceipt(txHash);
+    if (!receipt || receipt.status !== 1) return null;
+    if ((receipt.to ?? "").toLowerCase() !== config.contractAddress.toLowerCase()) return null;
+    const iface = new Contract(config.contractAddress, ANCHOR_V2_ABI).interface;
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== config.contractAddress.toLowerCase()) continue;
+      const parsed = (() => {
+        try {
+          return iface.parseLog(log);
+        } catch {
+          return null;
+        }
+      })();
+      if (parsed?.name !== "AuditHeadAnchored") continue;
+      return {
+        seq: Number(parsed.args.seq),
+        head: (parsed.args.head as string).slice(2),
+        timestamp: Number(parsed.args.timestamp),
+        blockNumber: receipt.blockNumber,
+      };
+    }
+    return null;
   });
 }
