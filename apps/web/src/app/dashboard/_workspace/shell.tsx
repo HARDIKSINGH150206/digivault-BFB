@@ -182,7 +182,7 @@ export const WORKSPACE_CSS = `
 .ws-card-value { font-size: 30px; font-weight: 500; letter-spacing: -0.025em; line-height: 1; font-variant-numeric: tabular-nums; }
 .ws-card-label { margin-top: 8px; font-size: 13px; color: var(--paper-3); }
 
-.ws-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr); gap: 12px; margin-top: 12px; align-items: start; }
+.ws-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr); gap: 16px; margin-top: 16px; align-items: start; }
 @media (max-width: 1100px) { .ws-grid { grid-template-columns: minmax(0, 1fr); } }
 .ws-panel { border: 1px solid var(--line-2); border-radius: 12px; padding: 20px 20px 8px; }
 .ws-panel-pad { padding-bottom: 20px; }
