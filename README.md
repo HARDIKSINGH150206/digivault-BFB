@@ -19,7 +19,7 @@ DigiVault fingerprints every page of every document version at upload: pages are
 The system defines five roles (`POLICE_OFFICER`, `INVESTIGATING_OFFICER`, `COURT_OFFICIAL`, `FORENSIC_LAB`, `ADMIN`), enforced on every API route.
 
 - **Investigating Officers (IO):** create cases, upload documents, confirm redactions, retry anchoring, and create and revoke consent-based share links. Police Officers can create cases, upload and confirm redactions, but cannot manage share links or retry anchoring.
-- **Court Officials:** read-only access to cases and document versions; download verification bundles (proof file and page images) and the pre-filled Bharatiya Sakshya Adhiniyam s.63 certificate.
+- **Court Officials:** read-only access to cases and document versions; download verification bundles (proof file and page images) and the pre-filled Bharatiya Sakshya Adhiniyam s.63 certificate, whose QR code opens the public check of its blockchain anchor.
 - **NCRB Administrators:** every action available to the other roles, plus the audit-log integrity page (`/dashboard/audit`). There is no user-management screen yet.
 - **Forensic Analysts (`FORENSIC_LAB`):** read-only access to every stored version of a document, including the original upload, with its hash chain and anchor record.
 
@@ -183,6 +183,7 @@ node scripts/smoke-test.mjs       # API: hashing, tamper detection, RBAC, step-u
 node scripts/e2e-part1.mjs        # UI: login, case creation, upload
 node scripts/e2e-part2.mjs        # UI: biometric step-up, redaction, certificate, sharing
 node scripts/e2e-part3.mjs        # UI + /verify against a real Amoy anchor
+CERT_DOCUMENT_ID=… CERT_VERSION_ID=… node scripts/e2e-certificate.mjs  # certificate QR on a phone-sized browser (no gas)
 ```
 
 ## Demo Credentials

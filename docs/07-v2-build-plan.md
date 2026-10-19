@@ -150,6 +150,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 5 — Section 63 certificate (Day 5)
 
+**Status (2026-10-19, branch `v2/phase-5-certificate`): Phase 5 complete.** `lib/certificate.ts` builds the PDF; the QR is ADR-022's chain-only link `/verify?v=&c=&tx=` (not `?proof=<MinIO URL>` as first written below — ADR-022 replaced it). `scripts/e2e-certificate.mjs` checks it on a real Amoy anchor without spending gas: the QR decoded from the PDF opens on a phone-sized logged-out browser as "Anchored"; dropping the pages and proof file turns it into "Verified". Opening the link over plain `http://<LAN IP>` exposed that browsers hide WebCrypto outside HTTPS/localhost; hashing now falls back to js-sha256 there (ADR-031). Not yet scanned with a physical phone.
+
 - One-click PDF per version: case reference, document title, commitment, fileHash, tx hash, block time, contract address.
 - QR code → `/verify?proof=<public MinIO URL of the proof JSON>` (ADR-022). The portal fetches the proof from MinIO and checks the commitment on chain.
 - On screen and on the certificate, say plainly: **scanning the QR proves this certificate's commitment is anchored; verifying a file additionally requires dropping the document pages.**

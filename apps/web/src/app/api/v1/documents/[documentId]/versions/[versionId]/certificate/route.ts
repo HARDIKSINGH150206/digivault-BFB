@@ -1,10 +1,12 @@
 import { Role } from "@prisma/client";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { requireStepUp } from "@/lib/step-up";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { anchoredValue } from "@/lib/proof-v2";
+import { buildCertificatePdf } from "@/lib/certificate";
+import { publicVerifyUrl } from "@/lib/public-proof";
+import { defaultChainConfig, getTxBlock, legacyChainConfig, type ChainConfig } from "@/lib/polygon";
 
 export const runtime = "nodejs";
 
@@ -16,14 +18,26 @@ const ALL_ROLES = [
   Role.ADMIN,
 ];
 
+/** The trusted contract (v2, or legacy v1) the anchor was written to. */
+function chainConfigFor(contractAddress: string | null): ChainConfig | null {
+  if (!contractAddress) return null;
+  const configs = [defaultChainConfig()];
+  try {
+    configs.push(legacyChainConfig());
+  } catch {
+    // No v1 deployment record.
+  }
+  return configs.find((c) => c.contractAddress.toLowerCase() === contractAddress.toLowerCase()) ?? null;
+}
+
 /**
  * GET /api/v1/documents/{documentId}/versions/{versionId}/certificate
  *
- * NOT in docs/04-api-spec.md — step 4 never built this endpoint, and
- * docs/01's requirement ("software cannot self-certify evidence... a
- * human still signs it") means this can only ever produce a PRE-FILLED,
- * unsigned certificate. It is never presented as valid on its own — the
- * PDF says so explicitly, with a blank signature block.
+ * BSA s.63 certificate (docs/04 §5, docs/07 Phase 5; lib/certificate.ts).
+ * docs/01: software cannot self-certify evidence, so this is only ever a
+ * PRE-FILLED, unsigned certificate with blank signature blocks for the
+ * officer and the expert. Once the version is anchored it carries a QR to
+ * the chain-only check on /verify (ADR-022).
  */
 export async function GET(
   req: Request,
@@ -46,103 +60,58 @@ export async function GET(
     return Response.json({ error: "NOT_FOUND", message: "Document version not found." }, { status: 404 });
   }
 
+  // Only a confirmed anchor goes on the certificate: a later FAILED or
+  // PENDING attempt must not hide it, and must not stand in for it.
   const anchor = await prisma.anchorLog.findFirst({
-    where: { documentVersionId: version.id },
+    where: { documentVersionId: version.id, status: "ANCHORED", polygonTxHash: { not: null } },
     orderBy: { anchoredAt: "desc" },
   });
+  const txHash = anchor?.polygonTxHash ?? null;
 
-  const pdf = await PDFDocument.create();
-  const page = pdf.addPage([595, 842]);
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const { width, height } = page.getSize();
-
-  let y = height - 60;
-  const left = 50;
-  const lineHeight = 18;
-
-  const drawTitle = (text: string, size = 13) => {
-    page.drawText(text, { x: left, y, size, font: bold, color: rgb(0.1, 0.1, 0.1) });
-    y -= size + 10;
-  };
-  const drawField = (label: string, value: string) => {
-    page.drawText(label, { x: left, y, size: 10, font: bold, color: rgb(0.2, 0.2, 0.2) });
-    page.drawText(value, { x: left + 170, y, size: 10, font, color: rgb(0.1, 0.1, 0.1) });
-    y -= lineHeight;
-  };
-  const drawWrapped = (text: string, size = 9) => {
-    const maxWidth = width - left * 2;
-    const words = text.split(" ");
-    let line = "";
-    for (const word of words) {
-      const test = line ? `${line} ${word}` : word;
-      if (font.widthOfTextAtSize(test, size) > maxWidth) {
-        page.drawText(line, { x: left, y, size, font, color: rgb(0.25, 0.25, 0.25) });
-        y -= size + 4;
-        line = word;
-      } else {
-        line = test;
-      }
+  let block: { number: number; time: Date } | null = null;
+  if (anchor && txHash) {
+    try {
+      const config = chainConfigFor(anchor.contractAddress);
+      const b = config ? await getTxBlock(txHash, config) : null;
+      if (b) block = { number: b.blockNumber, time: new Date(b.timestamp * 1000) };
+    } catch (err) {
+      // The certificate still lists the tx; anyone can look the block up.
+      console.warn(`[certificate] block for ${txHash} not read:`, err instanceof Error ? err.message : err);
     }
-    if (line) {
-      page.drawText(line, { x: left, y, size, font, color: rgb(0.25, 0.25, 0.25) });
-      y -= size + 4;
-    }
-  };
-
-  drawTitle("BHARATIYA SAKSHYA ADHINIYAM, 2023 — SECTION 63 CERTIFICATE", 14);
-  drawTitle("(SYSTEM-GENERATED, PRE-FILLED — NOT VALID UNTIL SIGNED BELOW)", 10);
-  y -= 10;
-
-  drawField("Case Number:", version.document.case.caseNumber);
-  drawField("Document Title:", version.document.title);
-  drawField("Document Version:", `v${version.versionNo}`);
-  drawField("Grid Size:", `${version.gridSize} x ${version.gridSize}`);
-  if (version.proofVersion === 1) {
-    drawField("Merkle Root (SHA-256):", version.merkleRoot);
-  } else {
-    // v2 (docs/03): the anchored value is the commitment C over the client
-    // hash and the document root R.
-    drawField("Proof Format:", `v${version.proofVersion} (salted tiles, RFC 6962)`);
-    drawField("Anchored Commitment (SHA-256):", anchoredValue(version));
-    drawField("Document Root (SHA-256):", version.merkleRoot);
   }
-  drawField("Client Hash (SHA-256):", version.clientHash);
-  drawField("Chain Hash (SHA-256):", version.chainHash);
-  drawField("Previous Hash:", version.previousHash ?? "(first version)");
-  drawField("MinIO Object Lock URI:", anchor?.objectLockUri ?? "(not yet anchored)");
-  drawField("Polygon Amoy Tx Hash:", anchor?.polygonTxHash ?? "(not yet anchored on-chain)");
-  drawField("Anchor Contract:", anchor?.contractAddress ?? "(not yet anchored on-chain)");
-  drawField("Anchored At:", anchor?.anchoredAt.toISOString() ?? "(not yet anchored)");
-  drawField("Certificate Generated At:", new Date().toISOString());
-  drawField("Generated For (role):", actor.role);
-  y -= 10;
 
-  drawWrapped(
-    "This certificate has been automatically generated by DigiVault and pre-filled with the cryptographic " +
-      "identity of the electronic record described above. Per Section 63 of the Bharatiya Sakshya Adhiniyam, " +
-      "2023, a certificate for electronic evidence must be signed by the person having lawful control of the " +
-      "device or system over which this record was produced. Software cannot self-certify evidence — a human " +
-      "must review and sign this document before it has any legal effect."
-  );
-
-  y -= 30;
-  page.drawLine({ start: { x: left, y }, end: { x: left + 250, y }, thickness: 1, color: rgb(0.3, 0.3, 0.3) });
-  y -= 14;
-  page.drawText("Signature", { x: left, y, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
-  y -= 30;
-  drawField("Name:", "________________________________");
-  drawField("Designation:", "________________________________");
-  drawField("Date:", "________________________________");
-
-  const bytes = await pdf.save();
+  const bytes = await buildCertificatePdf({
+    caseNumber: version.document.case.caseNumber,
+    documentTitle: version.document.title,
+    versionNo: version.versionNo,
+    proofVersion: version.proofVersion,
+    gridSize: version.gridSize,
+    anchoredValue: anchoredValue(version),
+    documentRoot: version.merkleRoot,
+    fileHash: version.clientHash,
+    chainHash: version.chainHash,
+    previousHash: version.previousHash,
+    anchor:
+      anchor && txHash
+        ? {
+            txHash,
+            contractAddress: anchor.contractAddress ?? "",
+            objectLockUri: anchor.objectLockUri,
+            block,
+            recordedAt: anchor.anchoredAt,
+          }
+        : null,
+    verifyUrl: txHash ? publicVerifyUrl({ documentVersionId: version.id, commitment: anchoredValue(version), txHash }) : null,
+    generatedAt: new Date(),
+    generatedForRole: actor.role,
+  });
 
   await writeAuditLog({
     actorId: actor.userId,
     action: "DOWNLOAD_CERTIFICATE",
     targetId: version.id,
     targetType: "DocumentVersion",
-    targetMeta: { versionNo: version.versionNo, anchored: Boolean(anchor?.polygonTxHash) },
+    targetMeta: { versionNo: version.versionNo, anchored: Boolean(txHash), blockRead: Boolean(block) },
     sourceIp: sourceIpFromRequest(req),
   });
 

@@ -270,6 +270,24 @@ export async function getTxOutcome(
   });
 }
 
+/**
+ * Block number and block time of a successful tx sent to config's contract
+ * (certificate, docs/07 Phase 5). null when it isn't mined, failed, or went
+ * to another contract.
+ */
+export async function getTxBlock(
+  txHash: string,
+  config: ChainConfig = defaultChainConfig()
+): Promise<{ blockNumber: number; timestamp: number } | null> {
+  return withRpcFallback(config.rpcUrls, config.chainId, async (provider) => {
+    const receipt = await provider.getTransactionReceipt(txHash);
+    if (!receipt || receipt.status !== 1) return null;
+    if ((receipt.to ?? "").toLowerCase() !== config.contractAddress.toLowerCase()) return null;
+    const block = await provider.getBlock(receipt.blockNumber);
+    return block ? { blockNumber: receipt.blockNumber, timestamp: block.timestamp } : null;
+  });
+}
+
 export async function getOnChainAnchor(
   documentVersionId: string,
   config: ChainConfig = defaultChainConfig()

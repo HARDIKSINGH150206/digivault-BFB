@@ -19,6 +19,7 @@ import { fontClass } from "@/lib/client/fonts";
 import { BrandMark } from "../dashboard/_workspace/shell";
 import { describeV2Mismatch, invalidProofV2, recomputeV2, type ProofFileV2 } from "./proof-v2";
 import { describeRedactionProblem, recomputeRedaction } from "./redaction";
+import { CERTIFICATE_QR_STATEMENT } from "@/lib/certificate-text";
 
 /**
  * Court Verification Portal. CLAUDE.md rule 5 / step 6 Part 3 requirements:
@@ -307,7 +308,7 @@ const VERIFY_CSS = `
 .vf-bad h2 { color: var(--danger); }
 .vf-checking { border-color: var(--line-2); }
 .vf-untrusted { border-color: var(--danger); background: var(--danger-soft); }
-.vf-official { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--ok-line); color: var(--ok); font-size: 12.5px; font-weight: 500; }
+.vf-official { margin-top: 14px; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 26px; padding: 4px 10px; max-width: 100%; border-radius: 6px; border: 1px solid var(--ok-line); color: var(--ok); font-size: 12.5px; font-weight: 500; }
 .vf-facts { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-2); display: grid; gap: 8px; font-size: 13.5px; color: var(--paper-2); }
 .vf-code { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--paper); }
 .vf-detail { margin: 12px 0 0; font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--paper-3); overflow-wrap: anywhere; }
@@ -665,11 +666,12 @@ export default function VerifyPage() {
             )}
             {certResult.outcome === "anchored" && (
               <>
-                <h2>Certificate commitment is anchored on the public blockchain</h2>
+                <h2>Anchored: this certificate&apos;s commitment is on the public blockchain</h2>
                 <p style={{ color: "var(--paper)" }}>
                   The commitment and transaction on this certificate match the official DigiVault record. No document file has been
-                  checked yet — add the page images and proof file below to verify the document itself.
+                  checked yet: add the page images and proof file below to verify the document itself.
                 </p>
+                <p className="vf-detail">{CERTIFICATE_QR_STATEMENT}</p>
                 <div className="vf-facts">
                   <div>document_version_id: <code className="vf-code">{certParams.versionId}</code></div>
                   <div>commitment: <code title={certParams.commitment} className="vf-code">{shortHash(certParams.commitment)}</code></div>
@@ -745,7 +747,10 @@ export default function VerifyPage() {
               </svg>
               <div>
                 <h2>Verified - matches public blockchain record</h2>
-                <p style={{ color: "var(--paper)" }}>The supplied document pages match the public Polygon Amoy anchor.</p>
+                <p style={{ color: "var(--paper)" }}>
+                  The supplied document pages match the public Polygon Amoy anchor.
+                  {certParams && certResult?.outcome === "anchored" && " They are the document version the scanned certificate describes."}
+                </p>
               </div>
             </div>
             <div className="vf-facts">

@@ -204,3 +204,12 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Decision:** what we do
 **Consequences:** what gets easier, harder, or is left open
 ```
+
+## ADR-031 — Certificate QR and hashing without WebCrypto
+**Status:** Accepted (2026-10-19), implemented (Phase 5)
+**Context:** docs/07 Phase 5 first said the QR opens `/verify?proof=<MinIO URL>`; ADR-022 had already chosen the chain-only `/verify?v=&c=&tx=`. Testing that link as a phone opens it (`PUBLIC_BASE_URL=http://<LAN IP>:3000`) showed browsers expose `crypto.subtle` only on HTTPS and localhost, so dropping the pages failed with "Cannot read properties of undefined (reading 'digest')".
+**Decision:**
+- The QR encodes ADR-022's link (`public_verify_url`), and is drawn only once a version has an `ANCHORED` attempt. The PDF reads the block number and time from the anchor tx on whichever trusted contract holds it, and falls back to the recorded time, saying so, if the chain can't be read.
+- `crypto-core/src/hash.ts: sha256` uses WebCrypto when present and js-sha256 (already the inner-node hash) otherwise. Same function, identical digests (`test/hash.test.ts`); rule 2 is unaffected.
+- Two blank signature blocks: Part A, the officer in charge of the record, and Part B, the expert (BSA s.63(4)). Text outside WinAnsi (e.g. a Hindi title) is printed as "?" rather than failing the PDF.
+**Consequences:** A demo phone can verify over plain HTTP on the LAN; HTTPS (or a tunnel) is still preferable for anything public. The certificate only ever claims "anchored"; "verified" needs the pages and proof file.

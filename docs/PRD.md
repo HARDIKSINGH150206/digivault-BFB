@@ -106,7 +106,7 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 | FR-50 | Public `/verify`: no login, no backend call, hardcoded trusted contract | ✅ |
 | FR-51 | `/verify` handles v1 legacy proofs and v2 proofs | 🔜 Phase 0/1 |
 | FR-52 | Pre-filled, unsigned BSA s.63 certificate | ✅ |
-| FR-53 | Certificate carries commitment, tx, block time + QR to `/verify` | 🔜 Phase 5 |
+| FR-53 | Certificate carries commitment, tx, block time + QR to `/verify` | ✅ |
 | FR-60 | BNSS s.193(2) two-month countdown for covered BNS/POCSO sections | 🔜 Phase 7 |
 
 ## 6. Non-functional requirements

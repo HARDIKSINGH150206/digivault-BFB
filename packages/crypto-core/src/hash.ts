@@ -1,11 +1,18 @@
+import { sha256 as syncSha256 } from "js-sha256";
+
 /**
  * SHA-256 via WebCrypto. This is the only hashing entry point used for
  * anything that feeds the Merkle root or the client_hash — never OCR/AI
  * output, per CLAUDE.md rule 2.
+ *
+ * Browsers only expose crypto.subtle on HTTPS and localhost, so a certificate
+ * QR opened on a phone over plain http://<LAN IP> (docs/07 Phase 5) has none:
+ * there it falls back to js-sha256, the same function in pure JS.
  */
 export async function sha256(data: ArrayBuffer | Uint8Array): Promise<Uint8Array> {
-  const buf = data instanceof Uint8Array ? toArrayBuffer(data) : data;
-  const digest = await crypto.subtle.digest("SHA-256", buf);
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  if (!globalThis.crypto?.subtle) return new Uint8Array(syncSha256.arrayBuffer(bytes));
+  const digest = await crypto.subtle.digest("SHA-256", toArrayBuffer(bytes));
   return new Uint8Array(digest);
 }
 
