@@ -136,6 +136,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 4 — Audit log anchoring (Day 4)
 
+**Status (2026-10-19, branch `v2/phase-4-audit-anchoring`): built and tested on a local chain; live Amoy run pending POL.** 6-hourly standalone anchor (`lib/audit-anchor.ts`, started from `src/instrumentation.ts`), `AuditHeadAnchor` records, MinIO copy, `pnpm audit:verify --onchain` checks every anchored head, admin page `/dashboard/audit` with a manual "anchor now" (step-up). Done-when check passes on a copy of the dev DB against the real Amoy heads: an edited row is named (`seq 150`); a rewrite with recomputed hashes, which the chain check alone accepts, is located (`between seq 149 and 153`). Choices: ADR-030.
+
 - Every document anchor tx also carries the current `(auditSeq, auditHead)` at no extra tx cost.
 - Standalone `anchorAuditHead` every 6 hours (≈0.012 POL/day), skipped if no new entries.
 - Each anchored head also written to MinIO Object Lock (rule 3 applies to audit heads too).

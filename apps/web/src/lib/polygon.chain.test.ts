@@ -2,7 +2,16 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Contract, ContractFactory, JsonRpcProvider, Wallet } from "ethers";
 import { beforeAll, describe, expect, it } from "vitest";
-import { ANCHOR_V2_ABI, anchorOnChain, getOnChainAnchor, getTxOutcome, type ChainConfig } from "./polygon";
+import {
+  ANCHOR_V2_ABI,
+  anchorAuditHeadOnChain,
+  anchorOnChain,
+  getAuditHeadFromTx,
+  getOnChainAnchor,
+  getOnChainAuditHead,
+  getTxOutcome,
+  type ChainConfig,
+} from "./polygon";
 
 // Integration test against a local Hardhat node — never a public chain.
 // Skipped unless LOCAL_CHAIN_RPC is set. Run with:
@@ -61,6 +70,25 @@ describe.skipIf(!RPC)("anchoring against a local chain", () => {
     const second = await anchorOnChain(`head2-${runId}`, root(4), { seq, head }, undefined, config);
     expect(second.auditSeq).toBeNull();
     expect((await getOnChainAnchor(`head2-${runId}`, config)).merkleRoot).toBe(`0x${root(4)}`);
+  });
+
+  it("anchors a standalone audit head, reads it back from the tx, and refuses a seq that doesn't rise", async () => {
+    const before = await getOnChainAuditHead(config);
+    const seq = before.seq + 3;
+    const head = root(0xbb);
+    const { txHash, blockNumber } = await anchorAuditHeadOnChain({ seq, head }, undefined, config);
+    expect(blockNumber).toBeGreaterThan(0);
+    const after = await getOnChainAuditHead(config);
+    expect([after.seq, after.head]).toEqual([seq, head]);
+    expect(await getAuditHeadFromTx(txHash, config)).toEqual({ seq, head, timestamp: after.timestamp, blockNumber });
+    // A document anchor that carried a head is read the same way; one that didn't has none.
+    const carried = await anchorOnChain(`head3-${runId}`, root(5), { seq: seq + 1, head: root(0xcc) }, undefined, config);
+    expect((await getAuditHeadFromTx(carried.txHash, config))?.seq).toBe(seq + 1);
+    const plain = await anchorOnChain(`head4-${runId}`, root(6), null, undefined, config);
+    expect(await getAuditHeadFromTx(plain.txHash, config)).toBeNull();
+    // Another contract's tx proves nothing about this one.
+    expect(await getAuditHeadFromTx(txHash, { ...config, contractAddress: `0x${"1".repeat(40)}` })).toBeNull();
+    await expect(anchorAuditHeadOnChain({ seq, head }, undefined, config)).rejects.toThrow(/AuditSeqNotIncreasing/);
   });
 
   it("times out when mining is paused, reports the submitted hash, and the tx lands later", async () => {

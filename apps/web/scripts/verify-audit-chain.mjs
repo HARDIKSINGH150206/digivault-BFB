@@ -7,7 +7,8 @@
 //
 // Usage (from the repo root, DB running):
 //   pnpm audit:verify                    # chain + legacy digest
-//   pnpm audit:verify --onchain          # also check the legacy digest's Polygon anchor
+//   pnpm audit:verify --onchain          # also check the anchored audit heads and the
+//                                        # legacy digest on Polygon (docs/07 Phase 4)
 //   node apps/web/scripts/verify-audit-chain.mjs --self-test   # test vectors only
 // Exit code 0 = intact, 1 = broken, 2 = error.
 import { readFileSync } from "node:fs";
@@ -40,12 +41,113 @@ function broken(msg) {
   process.exit(1);
 }
 
+function readDeployment(file) {
+  return JSON.parse(readFileSync(path.join(here, "..", "..", "..", "packages", "contracts", "deployments", file), "utf8"));
+}
+
+function rpcUrls() {
+  return [process.env.AMOY_RPC_URL, "https://polygon-amoy.drpc.org", "https://rpc-amoy.polygon.technology"].filter(Boolean);
+}
+
+/** Runs fn with a provider for each RPC URL in turn until one answers. */
+async function withProvider(chainId, fn) {
+  const { JsonRpcProvider, Network } = await import("ethers");
+  let lastErr;
+  for (const url of rpcUrls()) {
+    const provider = new JsonRpcProvider(url, Network.from(chainId), { batchMaxCount: 1, staticNetwork: true });
+    try {
+      return await fn(provider);
+    } catch (err) {
+      lastErr = err;
+    } finally {
+      provider.destroy();
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * docs/07 Phase 4: every audit head anchored on EvidenceAnchorV2 must equal
+ * the entryHash at its seq in the database. The chain check above catches
+ * an edited row; this catches a rewrite that recomputed every hash after
+ * it. Heads come from the contract itself (latestAuditHead) and from the
+ * AuditHeadAnchored events of every tx we recorded (standalone heads and
+ * heads carried by document anchors). AUDIT_ANCHOR_CONTRACT and
+ * AMOY_RPC_URL override the deployment (local-chain tests only).
+ */
+async function checkAnchoredHeads(prisma, entryHashAt, headSeq) {
+  const { Contract, Interface } = await import("ethers");
+  const deployment = readDeployment("amoy-v2.json");
+  const address = (process.env.AUDIT_ANCHOR_CONTRACT ?? deployment.address).toLowerCase();
+  const abi = [
+    "function latestAuditHead() view returns (uint64 seq, bytes32 head, uint256 timestamp)",
+    "event AuditHeadAnchored(uint64 indexed seq, bytes32 head, uint256 timestamp, address indexed anchoredBy)",
+  ];
+  const iface = new Interface(abi);
+
+  const standalone = await prisma.auditHeadAnchor.findMany({ where: { OR: [{ polygonTxHash: { not: null } }, { submittedTxHash: { not: null } }] } });
+  const carried = await prisma.anchorLog.findMany({ where: { auditSeq: { not: null }, polygonTxHash: { not: null } } });
+  const txs = [...new Set([...standalone.map((a) => a.polygonTxHash ?? a.submittedTxHash), ...carried.map((a) => a.polygonTxHash)])];
+
+  const heads = await withProvider(deployment.chainId, async (provider) => {
+    const found = [];
+    const [seq, head, timestamp] = await new Contract(address, abi, provider).latestAuditHead();
+    if (seq > 0n) found.push({ seq: Number(seq), head: head.slice(2), timestamp: Number(timestamp), source: "latestAuditHead()" });
+    for (const tx of txs) {
+      const receipt = await provider.getTransactionReceipt(tx);
+      if (!receipt || receipt.status !== 1 || (receipt.to ?? "").toLowerCase() !== address) continue;
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== address) continue;
+        const parsed = (() => {
+          try {
+            return iface.parseLog(log);
+          } catch {
+            return null;
+          }
+        })();
+        if (parsed?.name === "AuditHeadAnchored") {
+          found.push({ seq: Number(parsed.args.seq), head: parsed.args.head.slice(2), timestamp: Number(parsed.args.timestamp), block: receipt.blockNumber, tx });
+        }
+      }
+    }
+    return found;
+  });
+
+  if (heads.length === 0) {
+    console.log("audit heads: none anchored on chain yet");
+    return;
+  }
+  // Ascending seq; one entry per seq, preferring one that names its block.
+  const bySeq = new Map();
+  for (const h of heads) if (!bySeq.has(h.seq) || h.block !== undefined) bySeq.set(h.seq, { ...bySeq.get(h.seq), ...h });
+  const ordered = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+
+  let lastGood = 0;
+  for (const h of ordered) {
+    if (h.seq > headSeq) broken(`audit head seq ${h.seq} is anchored on chain, but the database ends at seq ${headSeq} — entries were deleted`);
+    if (entryHashAt(h.seq) !== h.head) {
+      broken(
+        `entry #${h.seq} does not match the head anchored on chain${h.block ? ` in block ${h.block}` : ""} ` +
+          `(${h.head} on chain, ${entryHashAt(h.seq)} in the database).\n` +
+          `The chain was rewritten: the first bad entry is between seq ${lastGood + 1} and ${h.seq}; seq 1..${lastGood} match their anchors.`
+      );
+    }
+    lastGood = h.seq;
+  }
+  const top = ordered.at(-1);
+  console.log(
+    `audit log verified up to entry #${top.seq}, anchored ${top.block ? `in block ${top.block}` : "on chain"} ` +
+      `(${new Date(top.timestamp * 1000).toISOString()}); ${ordered.length} anchored head(s) checked`
+  );
+  if (headSeq > top.seq) {
+    console.log(`  ${headSeq - top.seq} newer entr${headSeq - top.seq === 1 ? "y is" : "ies are"} hash-chained but not anchored yet`);
+  }
+}
+
 async function checkLegacyAnchorOnChain(digest) {
   const { JsonRpcProvider, Network, Contract, keccak256, toUtf8Bytes } = await import("ethers");
-  const deployment = JSON.parse(
-    readFileSync(path.join(here, "..", "..", "..", "packages", "contracts", "deployments", "amoy.json"), "utf8")
-  );
-  const urls = [process.env.AMOY_RPC_URL, "https://polygon-amoy.drpc.org", "https://rpc-amoy.polygon.technology"].filter(Boolean);
+  const deployment = readDeployment("amoy.json");
+  const urls = rpcUrls();
   let lastErr;
   for (const url of urls) {
     const provider = new JsonRpcProvider(url, Network.from(deployment.chainId), { batchMaxCount: 1, staticNetwork: true });
@@ -86,6 +188,10 @@ async function verifyDatabase() {
     console.log(
       head ? `audit chain OK: ${rows.length} entries, head seq ${head.seq} = ${head.entryHash}` : "audit chain OK: no chained entries yet"
     );
+    if (process.argv.includes("--onchain")) {
+      const bySeq = new Map(rows.map((r) => [r.seq, r.entryHash]));
+      await checkAnchoredHeads(prisma, (seq) => bySeq.get(seq) ?? null, head?.seq ?? 0);
+    }
 
     // Pre-chain rows are covered by the genesis entry's digest (ADR-026).
     const legacy = await prisma.auditLog.findMany({ where: { seq: null } });

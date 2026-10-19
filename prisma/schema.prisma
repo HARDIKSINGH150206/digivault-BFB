@@ -207,6 +207,27 @@ model AnchorLog {
   errorMessage      String?
 }
 
+// One attempt to anchor the audit-log head on its own (docs/07 Phase 4,
+// ADR-030): EvidenceAnchorV2.anchorAuditHead(seq, entryHash). Heads also
+// ride along on document anchors (AnchorLog.auditSeq). Not audited itself:
+// an audit row per anchor would always leave a newer, unanchored head.
+model AuditHeadAnchor {
+  id              String       @id @default(cuid())
+  seq             Int
+  entryHash       String
+  createdAt       DateTime     @default(now())
+  // Copy of the head in the Object-Locked anchor bucket (CLAUDE.md rule 3).
+  objectLockUri   String?
+  submittedTxHash String?
+  polygonTxHash   String?
+  blockNumber     Int?
+  contractAddress String?
+  status          AnchorStatus @default(PENDING)
+  errorMessage    String?
+
+  @@index([seq])
+}
+
 model DocumentShare {
   id             String    @id @default(cuid())
   document       Document  @relation(fields: [documentId], references: [id])
