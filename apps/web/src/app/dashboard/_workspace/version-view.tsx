@@ -29,6 +29,7 @@ import { can } from "@/lib/client/permissions";
 import { WorkspaceShell, Icon, formatDateTime } from "./shell";
 import { WorkspaceSharePanel } from "./share-panel";
 import { anchorState, type AnchorInfo } from "./data";
+import { CERTIFICATE_QR_STATEMENT } from "@/lib/certificate-text";
 
 interface VersionInfo {
   document_id: string;
@@ -49,6 +50,8 @@ interface VersionInfo {
   is_redacted: boolean;
   created_at: string;
   anchor: AnchorInfo | null;
+  /** Certificate QR target (ADR-022); null until anchored. */
+  public_verify_url: string | null;
 }
 
 interface Suggestion {
@@ -577,7 +580,20 @@ export function WorkspaceVersionView() {
                   <button type="button" className="ws-secondary" onClick={handleCertificate}>
                     <Icon name="download" size={18} /> Download certificate
                   </button>
-                  <p className="ws-row-note" style={{ margin: "-4px 0 4px" }}>BSA s.63 certificate, pre-filled with this version&apos;s record. Unsigned until signed by the responsible person.</p>
+                  <p className="ws-row-note" style={{ margin: "-4px 0 4px" }}>
+                    BSA s.63 certificate, pre-filled with this version&apos;s record. Unsigned until the officer and the expert sign it.
+                    {info.public_verify_url ? (
+                      <>
+                        {" "}Its QR code opens{" "}
+                        <a href={info.public_verify_url} target="_blank" rel="noreferrer" data-testid="certificate-verify-link" style={{ color: "var(--paper)", textDecoration: "underline", textUnderlineOffset: 3 }}>
+                          this verification link
+                        </a>
+                        . {CERTIFICATE_QR_STATEMENT}
+                      </>
+                    ) : (
+                      " It gets a verification QR code once the version is anchored."
+                    )}
+                  </p>
                   {anchored ? (
                     <>
                       <button type="button" className="ws-secondary" onClick={handleBundle}>

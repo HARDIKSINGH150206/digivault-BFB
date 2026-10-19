@@ -314,7 +314,7 @@ All under `/api/v1/documents/{documentId}/versions/{versionId}/`, all roles, eac
 
 | Route | Returns | Notes |
 |---|---|---|
-| `GET certificate` | pre-filled, unsigned BSA §63 PDF | **Requires `X-StepUp-Token`** |
+| `GET certificate` | pre-filled, unsigned BSA §63 PDF (`lib/certificate.ts`): case reference, title, anchored value, fileHash, tx, block number and time (read from the chain; falls back to the recorded time), contract, MinIO URI, blank Part A (officer) and Part B (expert) signature blocks | **Requires `X-StepUp-Token`**. Uses the latest `ANCHORED` attempt only. Once anchored, a QR encodes `public_verify_url` with the statement that scanning proves only that the commitment is anchored. |
 | `GET proof` | `verification-proof.json` (section 5) | `409 NOT_ANCHORED` until the version has an `ANCHORED` row |
 | `GET pages/{pageIndex}` | the page PNG | |
 | `GET redaction-proof` | `redaction-proof.json` (docs/03 §Redaction proofs) | Redacted versions only (`400 NOT_REDACTED` otherwise). `409 NOT_ANCHORED` until both this version and its original are anchored; `409 LEGACY_ORIGINAL` when the original is a v1-format version; `409 INTEGRITY_ERROR` if the proof would not verify against the stored pages (it is self-checked before serving). Audited as `DOWNLOAD_REDACTION_PROOF`. Contains the original's salts for unmasked tiles only. |
@@ -349,7 +349,7 @@ Every write goes through `writeAuditLog` (`apps/web/src/lib/audit.ts`), which ne
 | `UPLOAD_DOCUMENT_VERSION` | upload | — |
 | `CONFIRM_REDACTIONS` / `CONFIRM_REDACTIONS_DETAIL` | confirm | detail: prior version, `redactedTileIndices`, `tilesByPage` |
 | `ANCHOR_INITIATED` / `ANCHOR_COMPLETE` / `ANCHOR_FAILED` | `lib/anchor.ts` | `documentVersionId`; tx hash; `stage` + `error` |
-| `DOWNLOAD_CERTIFICATE` | certificate | `versionNo`, `anchored` |
+| `DOWNLOAD_CERTIFICATE` | certificate | `versionNo`, `anchored`, `blockRead` |
 | `DOWNLOAD_PROOF` | proof | `versionNo`, `anchorLogId`, `pageCount` |
 | `VIEW_DOCUMENT_VERSION` | pages/{pageIndex} | `pageIndex`, `versionNo` |
 | `SHARE_CREATED` / `SHARE_REVOKED` | shares | — |

@@ -79,7 +79,7 @@ Sections marked **(v2)** describe planned state; everything else is current code
 - Serves only the newest `READY` redacted version; otherwise `403 NO_REDACTED_VERSION`.
 
 ### 3.6 (v2) Redaction proof, audit anchoring, certificate QR
-Redaction proofs (Phase 3, done; docs/03 §Redaction proofs): the verifier proves a redacted copy against the *original* commitment using revealed salts for unmasked tiles and given salted leaves for masked tiles. Audit anchoring (Phase 4, done; ADR-030): audit-chain heads ride along with each document anchor and are anchored on their own every 6 h, with an admin view at `/dashboard/audit`. See `docs/07` Phase 5 for the rest: the certificate QR points at a public Object-Locked proof object in MinIO.
+Redaction proofs (Phase 3, done; docs/03 §Redaction proofs): the verifier proves a redacted copy against the *original* commitment using revealed salts for unmasked tiles and given salted leaves for masked tiles. Audit anchoring (Phase 4, done; ADR-030): audit-chain heads ride along with each document anchor and are anchored on their own every 6 h, with an admin view at `/dashboard/audit`. Certificate QR (Phase 5, done): the s.63 PDF carries a QR for the chain-only link `/verify?v=&c=&tx=` (ADR-022), and states that scanning proves only that the commitment is anchored; verifying the file needs its pages and proof file.
 
 ## 4. Data model (Prisma)
 
