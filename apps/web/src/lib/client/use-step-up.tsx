@@ -47,12 +47,14 @@ const PALETTES = {
     cardBorder: "1px solid rgba(74,144,196,0.35)", cardShadow: "0 0 60px rgba(30,80,160,0.25), 0 24px 60px rgba(0,0,0,0.5)",
     text: "#e2e8f0", eyebrow: "#4a90c4", muted: "#9ca3af", body: "#cbd5e1", inputBg: "#0a0f1a", inputBorder: "1px solid #1e3a5f",
     error: "#ef4444", primary: "#3b82f6", primaryDisabled: "#1f2937", primaryText: "#f9fafb", primaryDisabledText: "#f9fafb", link: "#60a5fa",
+    cardRadius: 16, titleWeight: 800, buttonRadius: 999, buttonWeight: 700,
   },
   light: {
-    overlay: "rgba(0,0,0,0.66)", cardBg: "var(--ink-2)",
-    cardBorder: "1px solid var(--line-2)", cardShadow: "0 30px 80px -30px rgba(0,0,0,0.8)",
-    text: "var(--paper)", eyebrow: "var(--brand)", muted: "var(--paper-3)", body: "var(--paper-2)", inputBg: "var(--ink)", inputBorder: "1px solid var(--line-2)",
-    error: "var(--danger)", primary: "var(--paper)", primaryDisabled: "var(--ink-4)", primaryText: "var(--ink)", primaryDisabledText: "var(--paper-4)", link: "var(--brand)",
+    overlay: "rgba(0,0,0,0.7)", cardBg: "var(--ink-3)",
+    cardBorder: "1px solid var(--line-2)", cardShadow: "none",
+    text: "var(--paper)", eyebrow: "var(--paper-4)", muted: "var(--paper-3)", body: "var(--paper-2)", inputBg: "var(--ink)", inputBorder: "1px solid var(--line-2)",
+    error: "var(--danger)", primary: "var(--paper)", primaryDisabled: "var(--ink-4)", primaryText: "var(--ink)", primaryDisabledText: "var(--paper-4)", link: "var(--paper-2)",
+    cardRadius: 12, titleWeight: 500, buttonRadius: 10, buttonWeight: 500,
   },
 } as const;
 
@@ -168,7 +170,7 @@ export function useStepUp(options: { theme?: StepUpTheme } = {}) {
             maxWidth: 380,
             background: c.cardBg,
             border: c.cardBorder,
-            borderRadius: 16,
+            borderRadius: c.cardRadius,
             padding: 26,
             boxShadow: c.cardShadow,
             color: c.text,
@@ -177,7 +179,7 @@ export function useStepUp(options: { theme?: StepUpTheme } = {}) {
           <p style={{ margin: "0 0 6px", color: c.eyebrow, fontSize: 10, letterSpacing: 2, fontWeight: 700, textTransform: "uppercase" }}>
             Step-up authentication
           </p>
-          <h2 id="step-up-title" style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
+          <h2 id="step-up-title" style={{ margin: 0, fontSize: 20, fontWeight: c.titleWeight, letterSpacing: "-0.02em" }}>
             Verify your identity
           </h2>
           <p style={{ margin: "8px 0 18px", color: c.muted, fontSize: 13, lineHeight: 1.5 }}>
@@ -272,11 +274,11 @@ function primaryButton(disabled: boolean, c: (typeof PALETTES)[StepUpTheme]): Re
     width: "100%",
     padding: 12,
     fontSize: 14,
-    fontWeight: 700,
+    fontWeight: c.buttonWeight,
     color: disabled ? c.primaryDisabledText : c.primaryText,
     background: disabled ? c.primaryDisabled : c.primary,
     border: `1px solid ${disabled ? c.primaryDisabled : c.primary}`,
-    borderRadius: 999,
+    borderRadius: c.buttonRadius,
     cursor: disabled ? "not-allowed" : "pointer",
   };
 }

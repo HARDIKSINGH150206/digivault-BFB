@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { requireStepUp } from "@/lib/step-up";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { anchoredValue } from "@/lib/proof-v2";
 
 export const runtime = "nodejs";
 
@@ -97,12 +98,21 @@ export async function GET(
   drawField("Document Title:", version.document.title);
   drawField("Document Version:", `v${version.versionNo}`);
   drawField("Grid Size:", `${version.gridSize} x ${version.gridSize}`);
-  drawField("Merkle Root (SHA-256):", version.merkleRoot);
+  if (version.proofVersion === 1) {
+    drawField("Merkle Root (SHA-256):", version.merkleRoot);
+  } else {
+    // v2 (docs/03): the anchored value is the commitment C over the client
+    // hash and the document root R.
+    drawField("Proof Format:", `v${version.proofVersion} (salted tiles, RFC 6962)`);
+    drawField("Anchored Commitment (SHA-256):", anchoredValue(version));
+    drawField("Document Root (SHA-256):", version.merkleRoot);
+  }
   drawField("Client Hash (SHA-256):", version.clientHash);
   drawField("Chain Hash (SHA-256):", version.chainHash);
   drawField("Previous Hash:", version.previousHash ?? "(first version)");
   drawField("MinIO Object Lock URI:", anchor?.objectLockUri ?? "(not yet anchored)");
   drawField("Polygon Amoy Tx Hash:", anchor?.polygonTxHash ?? "(not yet anchored on-chain)");
+  drawField("Anchor Contract:", anchor?.contractAddress ?? "(not yet anchored on-chain)");
   drawField("Anchored At:", anchor?.anchoredAt.toISOString() ?? "(not yet anchored)");
   drawField("Certificate Generated At:", new Date().toISOString());
   drawField("Generated For (role):", actor.role);

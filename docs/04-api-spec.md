@@ -74,10 +74,13 @@ All four WebAuthn routes and `verify-pin` require the session token. Challenges 
   "title": "FIR - Case 2026/1123",
   "doc_type": "FIR",
   "source_type": "SCANNED",
+  "proof_version": 2,
   "grid_size": 20,
   "page_count": 5,
   "client_hash": "3f9a...e21c",
   "merkle_root": "238b...cb2b",
+  "commitment": "c07e...41aa",
+  "salts": ["5d0f...91c2"],
   "tiles": [
     { "tile_index": 0, "page_index": 0, "row": 0, "col": 0, "hash": "a1b2...c3d4" }
   ],
@@ -87,10 +90,13 @@ All four WebAuthn routes and `verify-pin` require the session token. Challenges 
 }
 ```
 - `document_id`: omit/`null` for a brand-new document (requires `case_id`, `title`, `doc_type`, `source_type`); provide an existing `Document.id` to upload a new version of an existing document (`case_id`/`title`/`doc_type`/`source_type` ignored if present, since those belong to `Document`, not `DocumentVersion`).
-- `tiles`: length must equal `page_count × grid_size²`, i.e. the full flat `DocumentHashResult.tiles` array from crypto-core, field-for-field (`index`→`tile_index`, `pageIndex`→`page_index`, `hashHex`→`hash`).
+- `proof_version`: must be `2` (docs/03 §v2). Anything else → `400` (ADR-021: no new v1 versions).
+- `client_hash` = `fileHash`, `merkle_root` = the document root `R`, `commitment` = `C = H(0x03 ‖ fileHash ‖ R)` — all from `hashDocumentV2()` in crypto-core.
+- `salts`: one 32-byte lowercase-hex salt per tile, global tile order, generated in the browser with the CSPRNG (ADR-018). Wrong count, bad hex or any repeated salt → `400`. Stored encrypted (`VersionSaltSet`) in the same transaction as the version; never returned by this endpoint.
+- `tiles`: length must equal `page_count × grid_size²`, i.e. the full flat `tiles` array from `hashDocumentV2()`, field-for-field (`index`→`tile_index`, `pageIndex`→`page_index`, `hashHex`→`hash`, the salted leaf).
 - `pages`: `DocumentHashResult.pages`, i.e. `[{pageIndex, widthPx, heightPx}]` → `[{page_index, width_px, height_px}]`. (`pagePngBytes` isn't repeated here — that's the binary `page_N` parts.)
 
-**Server behavior (see the rule box above):** decodes each `page_N` PNG, re-tiles at `grid_size`, re-hashes every tile from raw pixel bytes, rebuilds the Merkle tree, recomputes `client_hash` from the length-prefixed PNG concatenation. Compares both against the submitted `metadata.client_hash`/`metadata.merkle_root`. `metadata.tiles[]` is used only to produce a precise error (which `tile_index` mismatched) on failure — the `Tile` rows actually persisted come from the server's own recomputation.
+**Server behavior (see the rule box above):** decodes each `page_N` PNG, re-tiles at `grid_size`, recomputes every salted leaf from raw pixel bytes and the submitted salts, rebuilds the page roots and `R`, recomputes `client_hash` from the length-prefixed PNG concatenation, then `C`. All three must equal the submitted `client_hash`, `merkle_root` and `commitment`. `metadata.tiles[]` is used only to produce a precise error (which `tile_index` mismatched) on failure — the `Tile` rows actually persisted come from the server's own recomputation. If `SALT_ENCRYPTION_KEY` is not configured the endpoint returns `503 SERVER_MISCONFIGURED` before doing any work.
 
 **Response `201 Created`:**
 ```json
@@ -101,13 +107,15 @@ All four WebAuthn routes and `verify-pin` require the session token. Challenges 
   "status": "READY",
   "anchor_status": "PENDING",
   "grid_size": 20,
+  "proof_version": 2,
   "merkle_root": "238b...cb2b",
+  "commitment": "c07e...41aa",
   "client_hash": "3f9a...e21c",
   "storage_uri": "s3://digivault-evidence/ckdoc456/v1/",
   "created_at": "2026-09-15T10:22:31.000Z"
 }
 ```
-`merkle_root`/`client_hash` in the response are the server-recomputed values (will equal the submitted ones, or the request would have been rejected).
+`merkle_root`/`commitment`/`client_hash` in the response are the server-recomputed values (will equal the submitted ones, or the request would have been rejected).
 
 `status` is `READY` once pages, tiles and hashes are stored. Anchoring then starts automatically in the background (endpoint 4), so `anchor_status` is always `PENDING` here; poll endpoint 4 or the version read route for the outcome. An anchor failure never changes the upload's result or the version's `status`.
 
@@ -115,7 +123,7 @@ All four WebAuthn routes and `verify-pin` require the session token. Challenges 
 ```json
 {
   "error": "HASH_MISMATCH",
-  "message": "Server-recomputed merkle_root does not match submitted value.",
+  "message": "Server-recomputed client_hash/merkle_root/commitment does not match submitted values.",
   "mismatched_tile_indices": [47]
 }
 ```
@@ -173,9 +181,9 @@ The confirming officer is taken from the session, never from the body.
 **Server behavior:** this is the second place rule 4 applies, called out explicitly since it's easy to assume "redaction is just a UI toggle" and skip it. The server does **not** trust any client-submitted root for the redacted version:
 1. Loads the current version's original page PNGs from storage.
 2. For each `page_index` touched by `confirmed_tile_indices`, draws an opaque black rectangle over each confirmed tile's pixel region (derived from `tile_index`/`grid_size`, same formula as endpoint 2) and re-exports the page as PNG — lossless, still PNG-only.
-3. Re-tiles and re-hashes the **redacted** pixels (same raw-pixel algorithm), builds a new Merkle tree, computes the new `merkle_root` entirely server-side.
+3. Generates **fresh** salts for the new version (never the prior version's — a masked tile's original salt must not reach anyone holding the redacted version's proof, ADR-018), re-tiles and re-hashes the **redacted** pixels with them (v2, docs/03), and computes the new `R` and `C` entirely server-side. The redacted version is always v2, even when the prior version is legacy v1. Its salts are stored in the same transaction as the version.
 4. Sets `RedactionFlag.masked = true` for flags matching confirmed tiles; creates a flag with `source: "officer_manual"` for confirmed tiles that had no prior suggestion.
-5. Inserts a new `DocumentVersion` row: `version_no = previous + 1`, `previous_hash = <previous version's chain_hash>`, `chain_hash = SHA256(previous_hash + merkle_root + version_no + timestamp)` — `version_no` as its ASCII decimal string, `timestamp` as the new version's ISO-8601 UTC creation timestamp, all four fields concatenated in that order before hashing. Including `version_no` and `timestamp` (not just `previous_hash`/`merkle_root`) makes the chain resistant to reordering and gives external auditors a cross-check point against the audit log and the anchor timestamp.
+5. Inserts a new `DocumentVersion` row: `version_no = previous + 1`, `previous_hash = <previous version's chain_hash>`, `chain_hash = H(0x06 ‖ prev ‖ C ‖ u32 version_no ‖ u64 timestamp_ms)` (docs/03 §v2; fixed-width fields). Including `version_no` and `timestamp` makes the chain resistant to reordering and gives external auditors a cross-check point against the audit log and the anchor timestamp. Legacy v1 versions keep their original chain hash, `SHA256(previous_hash + merkle_root + version_no + timestamp)` over the unseparated ASCII strings.
 
 **Response `201 Created`:**
 ```json
@@ -184,7 +192,9 @@ The confirming officer is taken from the session, never from the body.
   "version_no": 2,
   "previous_hash": "9c11...aa02",
   "chain_hash": "7de4...f110",
+  "proof_version": 2,
   "merkle_root": "51aa...9902",
+  "commitment": "9e02...7b1d",
   "status": "READY",
   "anchor_status": "PENDING",
   "redacted_tile_count": 3
@@ -196,7 +206,7 @@ The new version is marked `is_redacted: true` and `READY` only after its pages, 
 
 ## 4. Anchor — automatic, with `POST /api/v1/documents/{documentId}/versions/{versionId}/anchor` as retry
 
-Dual anchor per CLAUDE.md rule 3: the merkle root is written to MinIO, then to `EvidenceAnchor.sol` on Polygon Amoy. **Every version is anchored automatically**: upload (endpoint 1) and confirm-redactions (endpoint 3) start it in the background once their DB writes succeed, and respond without waiting. Each attempt is one `AnchorLog` row that moves `PENDING → ANCHORED | FAILED` (with `errorMessage`); failed attempts stay as history and are audited as `ANCHOR_FAILED`. This runs in-process, so it assumes one long-running Node server; a serverless deployment would need a job queue.
+Dual anchor per CLAUDE.md rule 3: the anchored value — the commitment `C` for v2, the merkle root for legacy v1 (`lib/proof-v2.ts: anchoredValue`) — is written to MinIO, then to `EvidenceAnchorV2.sol` on Polygon Amoy (`anchor(keccak256(versionId), value, auditSeq, auditHead)`, ADR-028). The tx also carries the newest audit-chain entry (`seq`, `entryHash`) when its seq is above the head already on chain; otherwise seq 0 is sent and no head is recorded, so a document anchor never fails over the audit head. `AnchorLog.contractAddress` records the contract written to and `AnchorLog.auditSeq` the head carried (null if none). Anchors written before contract v2 stay on the v1 contract (`AnchorLog.contractAddress` backfilled to it); a retry checks both contracts before sending. For v2 the MinIO record (`<doc>/v<n>/merkle-root.json`) holds `proof_version`, `commitment`, `document_root`, `client_hash`, `chain_hash` and `version_no`. **Every version is anchored automatically**: upload (endpoint 1) and confirm-redactions (endpoint 3) start it in the background once their DB writes succeed, and respond without waiting. Each attempt is one `AnchorLog` row that moves `PENDING → ANCHORED | FAILED` (with `errorMessage`); failed attempts stay as history and are audited as `ANCHOR_FAILED`. This runs in-process, so it assumes one long-running Node server; a serverless deployment would need a job queue.
 
 **`POST` — manual retry.** Roles: `INVESTIGATING_OFFICER`, `ADMIN`. **Requires `X-StepUp-Token`.** Runs synchronously. If the version already has an `ANCHORED` row it returns that row without sending a transaction (the contract refuses to overwrite a root anyway).
 
@@ -214,7 +224,7 @@ Dual anchor per CLAUDE.md rule 3: the merkle root is written to MinIO, then to `
 ```
 **`502`:** `{ "status": "FAILED", "reason": "<error>", "anchor_log_id": …, "object_lock_uri": …|null, "polygon_tx_hash": null }`.
 
-**`GET` — poll** (all roles): the latest `AnchorLog` row for the version, with `status: PENDING | ANCHORED | FAILED` and `error_message`. `404` if no attempt exists yet. The version read route (`GET …/versions/{versionId}`) embeds the same object as `anchor`, plus `is_redacted`.
+**`GET` — poll** (all roles): the latest `AnchorLog` row for the version, with `status: PENDING | ANCHORED | FAILED` and `error_message`. `404` if no attempt exists yet. The version read route (`GET …/versions/{versionId}`) embeds the same object as `anchor` (with `contract_address`), plus `is_redacted`, `proof_version`, `merkle_root` (`R` for v2), and `commitment` (the anchored value: `C` for v2, equal to `merkle_root` for v1).
 
 ---
 
@@ -222,7 +232,36 @@ Dual anchor per CLAUDE.md rule 3: the merkle root is written to MinIO, then to `
 
 The portal is public, stateless, and makes **zero calls to DigiVault's backend** (CLAUDE.md rule 5) — so this section isn't a backend endpoint, it's the JSON file contract between "whatever produced an anchored, possibly-redacted version" and the portal. A version's owner downloads/exports this file alongside the version's page PNG(s); the portal accepts both dropped in together.
 
-**`verification-proof.json` schema:**
+**`verification-proof.json` schema, v2** (every version created since Phase 1):
+```json
+{
+  "digivault_proof_version": 2,
+  "document_version_id": "ckver790",
+  "is_redacted": true,
+  "grid_size": 20,
+  "page_count": 5,
+  "file_hash": "3f9a...e21c",
+  "document_root": "51aa...9902",
+  "commitment": "9e02...7b1d",
+  "pages": [
+    { "page_index": 0, "width_px": 1190, "height_px": 1684, "png_sha256": "c4e1...09ab", "page_root": "77d0...a3f1" }
+  ],
+  "tiles": [
+    { "tile_index": 0, "leaf": "a1b2...c3d4", "salt": "5d0f...91c2" }
+  ],
+  "anchor": {
+    "polygon_chain_id": 80002,
+    "contract_address": "0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b",
+    "polygon_tx_hash": "0x7f3c...",
+    "anchored_at": "2026-10-19T10:24:02.000Z"
+  }
+}
+```
+- `tiles[].salt`: this version's own salts, every tile (selected through `revealableSalts`). The proof goes only to whoever is given the version's pages. A redacted version's salts are its own fresh ones, so no masked tile's original salt is ever in a proof (redaction proofs, section 6, reveal the original's *unmasked* salts only).
+- Before serving a v2 proof, the route rebuilds `R` from the stored leaves, `fileHash` from the stored PNGs and `C` from both, and returns `409 INTEGRITY_ERROR` if any differs from the recorded value or the salt set is missing.
+- The portal recomputes everything from the PNGs and the salts; `leaf`, `page_root`, `png_sha256`, `document_root` and `file_hash` only let it say where a mismatch is. PNGs are placed by `png_sha256`, so file names don't matter.
+
+**`verification-proof.json` schema, v1 (legacy, read-only):**
 ```json
 {
   "digivault_proof_version": 1,
@@ -251,13 +290,21 @@ The portal is public, stateless, and makes **zero calls to DigiVault's backend**
 - **A.** Decode each provided page PNG; re-tile at `proof.grid_size`; re-hash every tile from raw pixel bytes (identical algorithm to crypto-core — see `docs/03`).
 - **B.** Build a Merkle tree from the recomputed tile hashes; compute `recomputed_root`.
 - **C.** Cross-check each recomputed tile hash against `proof.tiles[]` by `tile_index` (for granular "tile 47 doesn't match" reporting) and check `recomputed_root === proof.merkle_root`.
-- **D.** Compute `keccak256(utf8Bytes(proof.document_version_id))` and call `getAnchor()` on the **official** `EvidenceAnchor.sol`. The portal hardcodes the contract (`0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b`), chain ID (`80002`) and deployer (`0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873`). `proof.anchor.contract_address` is **never** used for the lookup (F-02: a forged proof could otherwise point at the forger's own contract).
+- **D.** Compute `keccak256(utf8Bytes(proof.document_version_id))` and call `getAnchor()` on the official contract named by `proof.anchor.contract_address`, which must be one of the two the portal hardcodes (ADR-028): **EvidenceAnchorV2** `0x01e7e6f83f55873E906465d3447cB43434D4ee67` (every anchor since Phase 2; trusted when its `isTrusted(docId)` is true — written by an allow-listed account not revoked as of the anchor time) or the legacy **EvidenceAnchor v1** `0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b` (read-only; trusted only when `anchoredBy` is `0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873`). Chain ID `80002` is hardcoded too. Any other contract address is refused, never looked up (F-02: a forged proof could otherwise point at the forger's own contract).
 - **E.** Result states:
-  - **Invalid — untrusted** (distinct red state): the proof names another chain or contract; the RPC endpoint doesn't report chain 80002; or the on-chain `anchoredBy` isn't the deployer.
+  - **Invalid — untrusted** (distinct red state): the proof names another chain or contract; the RPC endpoint doesn't report chain 80002; on v2, `isTrusted()` is false (anchorer revoked); on v1, `anchoredBy` isn't the v1 account.
   - **Verified** (shows "Verified against official DigiVault contract"): `recomputed_root === proof.merkle_root === on_chain_merkle_root`.
   - **Mismatch**: anything else, naming which check failed.
 
-When the contract is redeployed, update those constants in `apps/web/src/app/verify/page.tsx` together with `packages/contracts/deployments/amoy.json`.
+When a contract is redeployed, update those constants in `apps/web/src/app/verify/page.tsx` together with `packages/contracts/deployments/amoy-v2.json` (or `amoy.json` for v1).
+
+**Redaction proofs (ADR-029):** a dropped file with `format: "digivault-redaction-proof/1"` is checked per docs/03 §Redaction proofs: the redacted PNGs must rebuild both the original version's and the redacted version's commitments, and both must match their anchors on the official contracts. The result names every changed tile or masked tile that shows content; on success it shows, per page, "N of 400 tiles are byte-identical to the original anchored on <date> · M masked · nothing else changed", with the masked areas outlined.
+
+**Proof versions (ADR-021):** `2` is current — the portal recomputes `C` (docs/03 §v2) and requires `recomputed C === proof.commitment === on-chain value`, labelled "v2 (salted tiles)". `1` is verified on a read-only legacy path (steps A–E above) and labelled "Legacy v1 proof (unsalted)". Any other version is refused.
+
+**Certificate link (ADR-022):** `/verify?v=<document_version_id>&c=<commitment hex>&tx=<polygon tx hash>`, built from `PUBLIC_BASE_URL` and returned as `public_verify_url` by `GET .../versions/{versionId}` once anchored. The portal checks, against the chain only: tx `tx` succeeded and was sent to one of the two official contracts; on that contract `getAnchor(keccak256(v))` holds `c` and the anchor is trusted (rules in step D); and the tx emitted that contract's anchor event for `(keccak256(v), c)` — `DocumentAnchored` on v2, `RootAnchored` on v1. It reports "commitment anchored", never "document verified". If a proof file is also dropped, its `document_version_id` must equal `v`.
+
+**Public proof file (ADR-022):** for salted (v2+) versions only, a redaction-safe subset of this schema — `digivault_proof_version`, `public: true`, `document_version_id`, `commitment`, `grid_size`, `page_count`, `is_redacted`, `anchor`, `verify_url`; no `pages`, no `tiles`, no salts — is published write-once to `<MINIO_PUBLIC_URL>/digivault-public-proofs/proofs/<document_version_id>.json`.
 
 ---
 
@@ -270,6 +317,7 @@ All under `/api/v1/documents/{documentId}/versions/{versionId}/`, all roles, eac
 | `GET certificate` | pre-filled, unsigned BSA §63 PDF | **Requires `X-StepUp-Token`** |
 | `GET proof` | `verification-proof.json` (section 5) | `409 NOT_ANCHORED` until the version has an `ANCHORED` row |
 | `GET pages/{pageIndex}` | the page PNG | |
+| `GET redaction-proof` | `redaction-proof.json` (docs/03 §Redaction proofs) | Redacted versions only (`400 NOT_REDACTED` otherwise). `409 NOT_ANCHORED` until both this version and its original are anchored; `409 LEGACY_ORIGINAL` when the original is a v1-format version; `409 INTEGRITY_ERROR` if the proof would not verify against the stored pages (it is self-checked before serving). Audited as `DOWNLOAD_REDACTION_PROOF`. Contains the original's salts for unmasked tiles only. |
 
 ---
 
@@ -315,5 +363,5 @@ Share recipients have no account, but `actorId` is a required FK to `User`. So s
 - ~~`chain_hash` formula~~ — resolved: `chain_hash = SHA256(previous_hash + merkle_root + version_no + timestamp)`, per project decision (see endpoint 3).
 - ~~The anchor flow's async/poll shape~~ — resolved: anchoring is automatic and runs in the background after upload/confirm; the UI polls (endpoint 4). A job queue would be needed for serverless or multi-instance deployments.
 - Step-up via the PIN fallback is always accepted, so step-up is only as strong as the PIN — open decision whether to restrict it to users with no registered authenticator.
-- If an anchor transaction lands but the server never sees the receipt, the row is `FAILED` and a retry is rejected on-chain ("already anchored"). Open: check `getAnchor()` before retrying and mark such rows `ANCHORED`.
+- ~~Anchor tx lands but the server never sees the receipt~~ — resolved (docs/07 P0.8, ADR-025): the tx hash is recorded when sent, and every anchor attempt checks `getAnchor()` first; a matching on-chain root with a successful recorded tx is marked `ANCHORED` without a new send.
 - Redaction confirm (endpoint 3) requires the server to redraw PNG pages with masked regions — Node has no DOM `<canvas>`, so the backend will need a headless canvas library (e.g. `@napi-rs/canvas` or `sharp`) as a new dependency. Not a spec problem, but a step-4 backend decision this doc's contract assumes is solvable.

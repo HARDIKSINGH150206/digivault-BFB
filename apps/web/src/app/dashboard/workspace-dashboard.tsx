@@ -61,12 +61,12 @@ export function WorkspaceDashboard() {
   const activity = useMemo(() => buildActivity(cases, evidence), [cases, evidence]);
 
   const cards = [
-    { icon: "folder" as const, tone: { bg: "var(--brand-soft)", fg: "var(--brand)" }, value: cases.length, label: "Total Cases" },
-    { icon: "clock" as const, tone: { bg: "var(--ok-soft)", fg: "var(--ok)" }, value: openCases, label: "Open Cases" },
-    { icon: "file" as const, tone: { bg: "rgba(255,255,255,0.04)", fg: "var(--paper-2)" }, value: evidence.length, label: "Evidence Files" },
+    { icon: "folder" as const, value: cases.length, label: "Total Cases" },
+    { icon: "clock" as const, value: openCases, label: "Open Cases" },
+    { icon: "file" as const, value: evidence.length, label: "Evidence Files" },
     canViewSuggestions
-      ? { icon: "review" as const, tone: { bg: "var(--warn-soft)", fg: "var(--warn)" }, value: needsReview.length, label: "Review Required" }
-      : { icon: "anchor" as const, tone: { bg: "var(--ok-soft)", fg: "var(--ok)" }, value: anchored.length, label: "Anchored Evidence" },
+      ? { icon: "review" as const, value: needsReview.length, label: "Review Required" }
+      : { icon: "anchor" as const, value: anchored.length, label: "Anchored Evidence" },
   ];
 
   const leftItems = canViewSuggestions ? needsReview : evidence;
@@ -88,7 +88,7 @@ export function WorkspaceDashboard() {
       <section className="ws-cards" aria-label="Summary" aria-busy={loading}>
         {cards.map((c) => (
           <div key={c.label} className="ws-card">
-            <span className="ws-card-icon" style={{ background: c.tone.bg, color: c.tone.fg }}>
+            <span className="ws-card-icon">
               <Icon name={c.icon} />
             </span>
             <div>

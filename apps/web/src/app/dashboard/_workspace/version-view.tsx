@@ -39,7 +39,9 @@ interface VersionInfo {
   version_no: number;
   grid_size: number;
   tile_count: number;
+  proof_version: number;
   merkle_root: string;
+  commitment: string;
   client_hash: string;
   chain_hash: string;
   previous_hash: string | null;
@@ -70,7 +72,7 @@ const VERSION_CSS = `
 .wsv-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; margin-top: 24px; align-items: start; }
 .wsv-side { display: grid; gap: 16px; position: sticky; top: 92px; }
 @media (max-width: 1100px) { .wsv-grid { grid-template-columns: minmax(0, 1fr); } .wsv-side { position: static; } }
-.wsv-viewer { background: var(--ink-3); border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: grid; gap: 24px; justify-items: center; }
+.wsv-viewer { background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 12px; padding: 24px; display: grid; gap: 24px; justify-items: center; }
 .wsv-page { position: relative; width: 100%; max-width: 760px; background: #FFFFFF; box-shadow: 0 30px 80px -30px rgba(0,0,0,0.8); border-radius: 4px; overflow: hidden; }
 .wsv-page img { display: block; width: 100%; height: auto; }
 .wsv-page-label { font-size: 12.5px; color: var(--paper-3); margin-top: -14px; }
@@ -85,20 +87,21 @@ const VERSION_CSS = `
 .wsv-status { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
 .wsv-status:first-of-type { border-top: 0; }
 .wsv-status-icon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; }
-.wsv-status-title { font-size: 14.5px; font-weight: 600; }
+.wsv-status-title { font-size: 14px; font-weight: 500; }
 .wsv-status-text { font-size: 13.5px; color: var(--paper-3); margin-top: 2px; }
 .wsv-details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
-.wsv-details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--brand); list-style-position: inside; }
+.wsv-details summary { cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--paper-2); list-style-position: inside; }
+.wsv-details summary:hover { color: var(--paper); }
 .wsv-details summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
 .wsv-hash { display: grid; gap: 3px; margin-top: 12px; }
-.wsv-hash-label { font-size: 12.5px; color: var(--paper-3); }
-.wsv-hash-value { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--paper); overflow-wrap: anywhere; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.wsv-hash-label { font-size: 12px; color: var(--paper-4); }
+.wsv-hash-value { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--paper); overflow-wrap: anywhere; background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 8px; }
 .wsv-sugg-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .wsv-sugg { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
 .wsv-sugg input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--brand); flex: none; }
 .wsv-sugg label { display: grid; gap: 3px; font-size: 13.5px; color: var(--paper-3); cursor: pointer; }
-.wsv-sugg-type { font-size: 14.5px; font-weight: 600; color: var(--paper); }
-.wsv-sugg-count { margin-left: 6px; font-size: 12.5px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 999px; padding: 1px 8px; }
+.wsv-sugg-type { font-size: 14px; font-weight: 500; color: var(--paper); }
+.wsv-sugg-count { margin-left: 6px; font-family: var(--font-mono), monospace; font-size: 12px; font-weight: 500; color: var(--warn); border: 1px solid var(--warn-line); border-radius: 6px; padding: 1px 6px; }
 .wsv-actions { display: grid; gap: 10px; margin-top: 14px; }
 .wsv-confirm { margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--danger-soft); border: 1px solid var(--danger-line); }
 .wsv-confirm p { margin: 0 0 12px; font-size: 14px; color: var(--paper); line-height: 1.5; }
@@ -302,6 +305,21 @@ export function WorkspaceVersionView() {
     }
   }
 
+  // Redacted versions only. Downloaded on its own, never alongside the
+  // original's verification bundle: that would hand over the masked tiles'
+  // original salts (docs/07 Phase 3).
+  async function handleRedactionProof() {
+    setMessage(null);
+    try {
+      const res = await apiFetch(`${base}/redaction-proof`);
+      const proof = await res.json();
+      if (!res.ok) throw new Error(proof.message ?? "The redaction proof is not available yet.");
+      triggerDownload(new Blob([JSON.stringify(proof, null, 2)], { type: "application/json" }), "redaction-proof.json");
+    } catch (err) {
+      setMessage({ kind: "error", text: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   async function handleCertificate() {
     setMessage(null);
     let headers: Record<string, string> | null;
@@ -435,7 +453,7 @@ export function WorkspaceVersionView() {
                         {anchored && info.anchor ? (
                           <>
                             {formatDateTime(info.anchor.anchored_at)} ·{" "}
-                            <a href={`https://amoy.polygonscan.com/tx/${info.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: "var(--brand)" }}>
+                            <a href={`https://amoy.polygonscan.com/tx/${info.anchor.polygon_tx_hash}`} target="_blank" rel="noreferrer" style={{ color: "var(--paper)", textDecoration: "underline", textUnderlineOffset: 3 }}>
                               View transaction
                             </a>
                           </>
@@ -457,7 +475,14 @@ export function WorkspaceVersionView() {
                 )}
                 <details className="wsv-details">
                   <summary>View technical details</summary>
-                  <div className="wsv-hash"><span className="wsv-hash-label">Merkle root</span><span className="wsv-hash-value">{info.merkle_root}</span></div>
+                  {info.proof_version === 1 ? (
+                    <div className="wsv-hash"><span className="wsv-hash-label">Merkle root (legacy v1, unsalted)</span><span className="wsv-hash-value">{info.merkle_root}</span></div>
+                  ) : (
+                    <>
+                      <div className="wsv-hash"><span className="wsv-hash-label">Anchored commitment</span><span className="wsv-hash-value">{info.commitment}</span></div>
+                      <div className="wsv-hash"><span className="wsv-hash-label">Document root (salted tiles)</span><span className="wsv-hash-value">{info.merkle_root}</span></div>
+                    </>
+                  )}
                   <div className="wsv-hash"><span className="wsv-hash-label">Client hash (page images)</span><span className="wsv-hash-value">{info.client_hash}</span></div>
                   <div className="wsv-hash"><span className="wsv-hash-label">Chain hash</span><span className="wsv-hash-value">{info.chain_hash}</span></div>
                   <div className="wsv-hash"><span className="wsv-hash-label">Previous version&apos;s chain hash</span><span className="wsv-hash-value">{info.previous_hash ?? "None (first version)"}</span></div>
@@ -559,8 +584,18 @@ export function WorkspaceVersionView() {
                         <Icon name="download" size={18} /> Download verification bundle
                       </button>
                       <p className="ws-row-note" style={{ margin: "-4px 0 0" }}>
-                        The proof file and page images. Anyone can check them at <Link href="/verify" style={{ color: "var(--brand)" }}>/verify</Link> without an account.
+                        The proof file and page images. Anyone can check them at <Link href="/verify" style={{ color: "var(--paper)", textDecoration: "underline", textUnderlineOffset: 3 }}>/verify</Link> without an account.
                       </p>
+                      {info.is_redacted && (
+                        <>
+                          <button type="button" className="ws-secondary" onClick={handleRedactionProof}>
+                            <Icon name="download" size={18} /> Download redaction proof
+                          </button>
+                          <p className="ws-row-note" style={{ margin: "-4px 0 0" }}>
+                            With these page images, shows the copy is the original anchored document except for the masked areas. Both versions must be anchored.
+                          </p>
+                        </>
+                      )}
                     </>
                   ) : (
                     <p className="ws-row-note" style={{ margin: 0 }}>The verification bundle is available once this version is anchored.</p>

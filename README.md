@@ -40,8 +40,8 @@ The system defines five roles (`POLICE_OFFICER`, `INVESTIGATING_OFFICER`, `COURT
         |                 |                   |
         v                 v                   v
    PostgreSQL         MinIO              Polygon Amoy (chainId 80002)
-   (Prisma):          page PNGs,         EvidenceAnchor.sol
-   cases, versions,   merkle-root.json   0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b
+   (Prisma):          page PNGs,         EvidenceAnchorV2.sol
+   cases, versions,   merkle-root.json   0x01e7e6f83f55873E906465d3447cB43434D4ee67
    tiles, AuditLog    per anchor               ^
                                                | public JSON-RPC read, no backend call
                                    /verify (Court Verification Portal)
@@ -50,19 +50,19 @@ The system defines five roles (`POLICE_OFFICER`, `INVESTIGATING_OFFICER`, `COURT
 ## How It Works
 
 1. **Login.** An officer signs in with a Service Number (format `UP/2021/4821`) and a 6-digit PIN. PINs are stored as bcrypt hashes; five failed attempts per IP or per service number trigger a 15-minute lockout. A successful login returns an HMAC-signed session token.
-2. **Upload.** In the browser, each PDF page is rendered to lossless PNG and split into a 20x20 tile grid; each tile's raw pixels are hashed with SHA-256 and combined into a Merkle root. The server recomputes every tile hash and the root from the PNGs it received and rejects the upload on any mismatch (`409 HASH_MISMATCH`). Accepted versions are stored as `READY` with a `chain_hash = SHA256(previous_hash + merkle_root + version_no + timestamp)`.
-3. **Anchoring.** Each new version is anchored automatically, in the background, as soon as it is stored: the Merkle root is written to MinIO and then to `EvidenceAnchor.sol` on Polygon Amoy. The version page shows the anchor moving from `PENDING` to `ANCHORED` or `FAILED`; a failed anchor never invalidates the upload, and can be retried after a biometric step-up.
-4. **Redaction.** The AI service runs OCR and named-entity recognition on the page images and suggests tiles containing victim names, phone numbers, Aadhaar numbers, addresses and similar identifiers. The suggestions never touch any hash. An officer selects tiles and confirms them after a WebAuthn biometric step-up (PIN fallback where the browser lacks WebAuthn); the server then masks those tiles, recomputes the Merkle root, and stores the result as a new hash-chained, automatically anchored version.
+2. **Upload.** In the browser, each PDF page is rendered to lossless PNG and split into a 20x20 tile grid; each tile's raw pixels are hashed with SHA-256 together with a random per-tile salt, combined into per-page RFC 6962 Merkle trees and a document root, and bound to the page files in a commitment (`docs/03`, proof format v2). The server recomputes every leaf, the root and the commitment from the PNGs and salts it received and rejects the upload on any mismatch (`409 HASH_MISMATCH`). Accepted versions are stored as `READY`, with their salts encrypted, and hash-chained to the previous version.
+3. **Anchoring.** Each new version is anchored automatically, in the background, as soon as it is stored: the commitment is written to MinIO and then to `EvidenceAnchorV2.sol` on Polygon Amoy, together with the current head of the hash-chained audit log. The version page shows the anchor moving from `PENDING` to `ANCHORED` or `FAILED`; a failed anchor never invalidates the upload, and can be retried after a biometric step-up.
+4. **Redaction.** The AI service runs OCR and named-entity recognition on the page images and suggests tiles containing victim names, phone numbers, Aadhaar numbers, addresses and similar identifiers. The suggestions never touch any hash. An officer selects tiles and confirms them after a WebAuthn biometric step-up (PIN fallback where the browser lacks WebAuthn); the server then masks those tiles, recomputes the commitment with fresh salts, and stores the result as a new hash-chained, automatically anchored version.
 5. **Audit and sharing.** Uploads, redaction confirmations (with the exact tiles masked), anchor attempts, page views, proof and certificate downloads, share creation, share access and share downloads are written to `AuditLog`, which the application's database role can insert into but not update or delete. Share links serve only the latest redacted version; if none exists, sharing is refused (`403`).
 
 ## Key Security Properties
 
-- **Cryptographic hash chain with on-chain anchor.** Each `DocumentVersion` stores a Merkle root over SHA-256 hashes of its tiles' raw pixels, a hash of the page PNGs, and a chain hash linking it to the previous version. The root is anchored in `EvidenceAnchor.sol`, which accepts writes only from its owner and refuses to overwrite an existing anchor, so modifying a stored page after upload, including by an insider with database or storage access, is detectable against the public record. This makes insider tampering with evidence content cryptographically detectable; it does not prevent it.
+- **Cryptographic hash chain with on-chain anchor.** Each `DocumentVersion` stores a Merkle root over salted SHA-256 hashes of its tiles' raw pixels, a hash of the page PNGs, a commitment over both, and a chain hash linking it to the previous version. The commitment is anchored in `EvidenceAnchorV2.sol`, which accepts writes only from an owner-managed list of anchoring accounts and refuses to overwrite an existing anchor, so modifying a stored page after upload, including by an insider with database or storage access, is detectable against the public record. This makes insider tampering with evidence content cryptographically detectable; it does not prevent it.
 - **Insert-only audit trail.** The application connects to PostgreSQL as `digivault_app`, which has `UPDATE` and `DELETE` revoked on `AuditLog` (migration `20260915165833_audit_log_insert_only`); the application exposes no update or delete path for it. Entries therefore cannot be altered or removed through the application or its database credentials; the database owner role used for migrations still can.
 - **Biometric step-up.** Confirming redactions, retrying an anchor and generating a certificate each require a 5-minute step-up token, bound to the logged-in user, obtained through WebAuthn (fingerprint / Face ID) or, where the browser does not support WebAuthn, by re-entering the PIN. Registering a biometric credential itself requires the PIN.
-- **Redaction with human confirmation.** The FastAPI service detects likely victim identifiers (Tesseract OCR in English and Hindi, spaCy NER, English and Devanagari regular expressions) and only suggests tiles. The server masks confirmed tiles and stores the result as a separate version; share links never serve the unredacted original.
+- **Redaction with human confirmation.** The FastAPI service detects likely victim identifiers (Tesseract OCR in English and Hindi, spaCy NER, English and Devanagari regular expressions) and only suggests tiles. The server masks confirmed tiles and stores the result as a separate version; share links never serve the unredacted original. A redaction proof lets anyone check, at `/verify`, that the redacted copy is the original anchored document except for the masked tiles, without seeing them.
 - **Role-based access.** Five roles, checked in every API route against an HMAC-signed session token. Database-level enforcement applies to the audit log only.
-- **Public, independent verification.** `/verify` requires no account and makes no call to DigiVault's backend. A verifier supplies the page PNGs and the `verification-proof.json` from a verification bundle; the page recomputes the Merkle root in the browser and compares it with the anchor read directly from Polygon Amoy. The contract address, chain ID and anchoring account are fixed in the page, so a proof file pointing at any other contract or chain is reported as invalid.
+- **Public, independent verification.** `/verify` requires no account and makes no call to DigiVault's backend. A verifier supplies the page PNGs and the `verification-proof.json` from a verification bundle; the page recomputes the commitment in the browser, names any tile that differs, and compares the result with the anchor read directly from Polygon Amoy. Proofs from before proof format v2 still verify, labelled as legacy. The contract address, chain ID and anchoring account are fixed in the page, so a proof file pointing at any other contract or chain is reported as invalid.
 
 ## Tech Stack
 
@@ -73,8 +73,8 @@ The system defines five roles (`POLICE_OFFICER`, `INVESTIGATING_OFFICER`, `COURT
 | AI Service | FastAPI (Python), Tesseract OCR (English + Hindi), spaCy `en_core_web_sm`, regular expressions |
 | Database | PostgreSQL 17, Prisma ORM |
 | File Storage | MinIO (S3-compatible) |
-| Cryptography | `packages/crypto-core`: PDF.js page rendering, per-tile SHA-256, Merkle trees (merkletreejs) |
-| Blockchain | Solidity (`EvidenceAnchor.sol`), Hardhat, ethers v6, Polygon Amoy (chainId 80002) |
+| Cryptography | `packages/crypto-core`: PDF.js page rendering, salted per-tile SHA-256, RFC 6962 Merkle trees (in-repo; merkletreejs only for legacy v1) |
+| Blockchain | Solidity (`EvidenceAnchorV2.sol`; `EvidenceAnchor.sol` legacy), Hardhat, ethers v6, Polygon Amoy (chainId 80002) |
 | Auth | Service Number + PIN (bcrypt), HMAC-signed session tokens, WebAuthn step-up (SimpleWebAuthn) |
 | Package Manager | pnpm (workspace monorepo) |
 
@@ -89,7 +89,7 @@ digivault-BFB/
 │   └── ai-service/         FastAPI service returning redaction tile suggestions
 ├── packages/
 │   ├── crypto-core/        Browser/Node library: PDF to PNG, tile hashing, Merkle tree
-│   └── contracts/          EvidenceAnchor.sol, Hardhat config, Amoy deployment record
+│   └── contracts/          EvidenceAnchorV2.sol (+ legacy v1), tests, Hardhat config, Amoy deployment records
 ├── prisma/                 schema.prisma, migrations, test seed script
 ├── docs/                   Problem statement, architecture, crypto spec, API spec
 └── docker-compose.yml      PostgreSQL and MinIO for local development
@@ -116,7 +116,7 @@ digivault-BFB/
 - Node.js 20 or later, pnpm
 - Docker (for PostgreSQL and MinIO)
 - Python 3 with `venv`, and Tesseract OCR with English and Hindi data (`sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin`)
-- An Amoy RPC endpoint and the private key of the `EvidenceAnchor` owner account, funded with Amoy test POL (only needed for anchoring)
+- An Amoy RPC endpoint and the private key of an account on `EvidenceAnchorV2`'s anchorer list, funded with Amoy test POL (only needed for anchoring)
 
 ### 1. Services and dependencies
 
@@ -179,7 +179,7 @@ With the web app (and, for parts 2 and 3, the AI service) running:
 
 ```bash
 cd apps/web
-node scripts/smoke-test.mjs       # API: hashing, tamper detection, RBAC, step-up, sharing
+node scripts/smoke-test.mjs       # API: hashing, tamper detection, RBAC, step-up, sharing, redaction proofs
 node scripts/e2e-part1.mjs        # UI: login, case creation, upload
 node scripts/e2e-part2.mjs        # UI: biometric step-up, redaction, certificate, sharing
 node scripts/e2e-part3.mjs        # UI + /verify against a real Amoy anchor
@@ -198,11 +198,8 @@ node scripts/e2e-part3.mjs        # UI + /verify against a real Amoy anchor
 ## Smart Contract
 
 - Network: Polygon Amoy (testnet, chainId 80002)
-- Contract: `0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b`
-- Explorer: https://amoy.polygonscan.com/address/0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b
-- Deployed block: 48603680
-- Owner (only account allowed to anchor): `0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873`
-- Source: `packages/contracts/contracts/EvidenceAnchor.sol`; deployment record: `packages/contracts/deployments/amoy.json`
+- **Current — EvidenceAnchorV2:** `0x01e7e6f83f55873E906465d3447cB43434D4ee67` ([explorer](https://amoy.polygonscan.com/address/0x01e7e6f83f55873E906465d3447cB43434D4ee67)), deployed in block 50527642. Owner and first anchorer: `0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873`. Two-step ownership transfer, anchorer allow-list with retire/revoke, audit-log heads (ADR-028). Source `packages/contracts/contracts/EvidenceAnchorV2.sol`; record `packages/contracts/deployments/amoy-v2.json`.
+- **Legacy — EvidenceAnchor v1:** `0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b` ([explorer](https://amoy.polygonscan.com/address/0xFAf1031E2A4EF75Cf871bF93035DA062AB6D1A5b)), block 48603680, owner-only writes. Anchors written before contract v2 stay here and still verify; nothing new is written. Source `packages/contracts/contracts/EvidenceAnchor.sol`; record `packages/contracts/deployments/amoy.json`.
 
 ## Roadmap
 
@@ -210,7 +207,7 @@ Current status: hackathon MVP. Known gaps before production use:
 
 - [ ] HSM-backed key management (the anchoring key is currently read from an environment file)
 - [ ] Encryption at rest (page images are currently stored unencrypted in MinIO)
-- [ ] MinIO Object Lock (WORM) on anchor records (not currently configured)
+- [x] MinIO Object Lock (WORM, Compliance mode) on anchor records (`digivault-anchors` bucket)
 - [ ] Audit-log review and user-management screens for administrators
 - [ ] Shared rate-limit, challenge and job-queue storage for multi-instance deployment
 - [ ] Mobile app for field officers

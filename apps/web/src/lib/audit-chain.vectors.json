@@ -1,0 +1,50 @@
+[
+  {
+    "seq": 1,
+    "prevHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "actorId": "user_1",
+    "action": "UPLOAD_DOCUMENT_VERSION",
+    "targetId": "ver_1",
+    "targetType": "DocumentVersion",
+    "targetMeta": null,
+    "timestamp": "2026-10-18T10:00:00.000Z",
+    "sourceIp": "127.0.0.1",
+    "entryHash": "0e2a6365654a5940c9a9a98180241872502a83c493e29f4b0b95b4f38f3e5536"
+  },
+  {
+    "seq": 2,
+    "prevHash": "0e2a6365654a5940c9a9a98180241872502a83c493e29f4b0b95b4f38f3e5536",
+    "actorId": "user_1",
+    "action": "CONFIRM_REDACTIONS_DETAIL",
+    "targetId": "ver_2",
+    "targetType": "DocumentVersion",
+    "targetMeta": {
+      "versionNo": 2,
+      "redactedTileIndices": [
+        3,
+        1
+      ],
+      "tilesByPage": {
+        "0": [
+          "R0C1"
+        ]
+      },
+      "note": "नाम"
+    },
+    "timestamp": "2026-10-18T10:05:00.123Z",
+    "sourceIp": "10.0.0.7",
+    "entryHash": "67d5f817072d54f89b1a8e0426717fbd0add16a55767bc1fe557344eb455aafd"
+  },
+  {
+    "seq": 3,
+    "prevHash": "67d5f817072d54f89b1a8e0426717fbd0add16a55767bc1fe557344eb455aafd",
+    "actorId": "user_2",
+    "action": "SHARE_REVOKED",
+    "targetId": "share_1",
+    "targetType": null,
+    "targetMeta": null,
+    "timestamp": "2026-10-18T11:00:00.000Z",
+    "sourceIp": "",
+    "entryHash": "c2e65ae4f3ea68dd6e574538916d48b8fd898686fee919eb093f2965125e0af6"
+  }
+]
