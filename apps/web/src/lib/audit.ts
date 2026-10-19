@@ -33,6 +33,8 @@ export type AuditAction =
   | "SHARE_REVOKED"
   | "SHARE_LINK_ACCESSED"
   | "SHARE_LINK_DOWNLOADED"
+  | "SHARE_LINK_PAGE_DOWNLOADED"
+  | "SHARE_LINK_REDACTION_PROOF_DOWNLOADED"
   | "WEBAUTHN_REGISTERED"
   // Written once by scripts/audit-legacy-genesis.mjs (ADR-026), not by any route.
   | "AUDIT_LEGACY_GENESIS";
