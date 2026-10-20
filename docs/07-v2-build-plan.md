@@ -188,6 +188,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 8 — Demo hardening (Day 7)
 
+**Status (2026-10-20, branch `v2/phase-8-docs`): docs done; the rest open.** `docs/05-demo-golden-path.md` written (accounts, pre-demo checklist, 12-step sequence with timings, recovery table, gas per run). Threat-model table in `docs/ARCHITECTURE.md` §6 extended with six rows (AI miss, stolen session, leaked share, moved FIR date, hostile RPC, deleted pages); the paper's Table 2 was not available to reuse. Still open: three-browser Playwright check, the messy scan, re-anchoring the demo documents on v2, two rehearsals.
+
 - Write `docs/05-demo-golden-path.md` (CLAUDE.md step 7 expects it).
 - Threat-model table (adversary → attack → defence) in `docs/ARCHITECTURE.md`; reuse Table 2 from the paper.
 - Playwright: verify portal in Chromium, Firefox and WebKit must produce identical roots for the test vectors and a real document.
