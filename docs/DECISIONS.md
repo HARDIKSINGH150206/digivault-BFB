@@ -183,7 +183,7 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 ---
 
 ## ADR-030 — Audit-log anchoring: schedule, records, refusal, verification
-**Status:** Accepted (2026-10-19), implemented (Phase 4); live Amoy run pending POL
+**Status:** Accepted (2026-10-19), implemented (Phase 4); live Amoy run done 2026-10-20 (seq 337, block 50692857)
 **Context:** docs/07 Phase 4: anchor the audit head every 6 h on its own, skipped when nothing is new; keep a MinIO copy; a check and an admin view. Left open: where the schedule runs, how a standalone anchor is recorded without making the next run never skip, what to do when the database disagrees with the chain, and how a full rewrite (all hashes recomputed) is located.
 **Decision:**
 - The schedule runs inside the Next.js server (`src/instrumentation.ts`, `lib/audit-anchor.ts`), every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6, `0` = off), first run one interval after start. It shares the document-anchor send queue, and reads both heads inside it.
