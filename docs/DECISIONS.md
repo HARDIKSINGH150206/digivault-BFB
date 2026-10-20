@@ -213,3 +213,15 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 - `crypto-core/src/hash.ts: sha256` uses WebCrypto when present and js-sha256 (already the inner-node hash) otherwise. Same function, identical digests (`test/hash.test.ts`); rule 2 is unaffected.
 - Two blank signature blocks: Part A, the officer in charge of the record, and Part B, the expert (BSA s.63(4)). Text outside WinAnsi (e.g. a Hindi title) is printed as "?" rather than failing the PDF.
 **Consequences:** A demo phone can verify over plain HTTP on the LAN; HTTPS (or a tunnel) is still preferable for anything public. The certificate only ever claims "anchored"; "verified" needs the pages and proof file.
+
+## ADR-032 — BNSS s.193(2) deadline: due date, counting, scope
+**Status:** Accepted (2026-10-19), implemented (Phase 7)
+**Context:** docs/07 Phase 7 says "alerts at day 45, 55 and 60". The statute says the investigation must be completed "within two months" of the information being recorded, and two calendar months is 59 to 62 days.
+**Decision:**
+- Due date = the **earlier** of registration + 60 days and registration + 2 calendar months (clamped to month end: 31 Dec → 28/29 Feb). The badge never shows "on time" for a day the statute already counts as late; on a 62-day span it warns two days early, which is the safe side.
+- Calendar days in India time; the registration day is not counted (General Clauses Act s.9). Amber from day 45, red from day 55, "overdue" from the due date itself (label "Due today"), then "Overdue by N days".
+- Covered: BNS 64, 65, 66, 67, 68, 70, 71 and POCSO 4, 6, 8, 10, including sub-sections ("BNS 64(1)"). Section text is free-form ("BNS s.64", "POCSO Act sec 4"); the first section number is used, never a sub-section or the act's year.
+- A `CLOSED` case has no deadline (the investigation is over). There is no separate "chargesheet filed" field yet; closing the case is how the clock stops.
+- Computed on the server for every case response, so every screen shows the same value; the client only renders it. Alerts are in-app (dashboard list and case page); there are no emails or SMS.
+- The registration date and sections can be changed after creation (cases created before Phase 7 have neither). Every change is audited with old and new values, because moving the date moves the deadline.
+**Consequences:** Holidays don't extend the period (the statute doesn't say they do). A case that's re-opened starts showing its deadline again, likely overdue.

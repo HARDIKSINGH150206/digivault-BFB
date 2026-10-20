@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/client/auth-context";
 import { apiJson } from "@/lib/client/api-client";
 import { can } from "@/lib/client/permissions";
 import { WorkspaceShell, Icon, caseStatusChip, relativeTime, greeting } from "./_workspace/shell";
+import { DeadlineChip } from "./_workspace/deadline";
 import { loadEvidence, buildActivity, anchorState, type CaseRow, type Evidence } from "./_workspace/data";
 import { ActivityPanel } from "./_workspace/activity-table";
 import { NewCaseControl } from "./_workspace/new-case";
@@ -155,6 +156,7 @@ export function WorkspaceDashboard() {
                       </div>
                     </span>
                     {caseStatusChip(kase.status)}
+                    <DeadlineChip deadline={kase.bnss_deadline} />
                     <span className="ws-row-meta">Opened {relativeTime(kase.created_at)}</span>
                     <span className="ws-chevron"><Icon name="chevron" size={18} /></span>
                   </Link>

@@ -176,6 +176,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 7 — BNSS s.193(2) deadline tracking (Day 6)
 
+**Status (2026-10-19, branch `v2/phase-7-deadlines`): Phase 7 complete.** Rule in `lib/bnss-deadline.ts` (18 unit tests), `bnss_deadline` on every case from the API, FIR date and sections settable on create and through an audited `PATCH`, badge on both dashboards and the case page, alerts at the top of "Needs your attention" and on the case page. `scripts/seed-deadline-cases.mjs` seeds six demo cases dated from today; `scripts/e2e-deadlines.mjs` passes 14/14 — the day-50 case shows an amber badge and alerts, the non-covered and closed cases show neither. Choices (due date, day counting, closed cases): ADR-032.
+
 - Applies only to BNS ss.64, 65, 66, 67, 68, 70, 71 and POCSO ss.4, 6, 8, 10 — not every offence against women and not all of POCSO. Driven by `Case.offenceSections`.
 - Clock starts at `Case.firRegisteredAt` (date the information was recorded).
 - Countdown badge; alerts at day 45 (amber), 55 (red) and 60 (overdue).

@@ -7,6 +7,7 @@
  */
 
 import { apiJson } from "@/lib/client/api-client";
+import type { BnssDeadlineJson } from "./deadline";
 
 /** "SEXUAL_ASSAULT" -> "Sexual assault" for display; codes without underscores ("FIR", "OPEN") only get sentence case when all caps and longer than 3 letters. The stored value is unchanged. */
 export function humanizeCode(code: string): string {
@@ -23,6 +24,10 @@ export interface CaseRow {
   department: string;
   document_count: number;
   created_at: string;
+  fir_registered_at: string | null;
+  offence_sections: string[];
+  /** BNSS s.193(2) deadline; null when the rule doesn't apply (docs/07 Phase 7). */
+  bnss_deadline: BnssDeadlineJson | null;
 }
 
 export interface DocumentRow {
