@@ -90,6 +90,7 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | AI service unit tests | `cd apps/ai-service && .venv/bin/python -m unittest discover -s tests -t .` |
 | Redaction boxes + gazetteer in the real UI (both services, `GAZETTEER_KEY` set, test set generated; ~0.014 POL) | `cd apps/web && node scripts/e2e-redaction-boxes.mjs` |
 | Redaction recall + gazetteer (both test sets, ~6 min, no services needed) | `pnpm eval:redaction` — results in `docs/08`; misses in `apps/ai-service/eval/out/**/results.json` |
+| Redaction quality gate (after `eval:redaction`; also in CI) | `pnpm eval:gate` — fails if recall drops at all or precision by > 2 points; `cd apps/ai-service && .venv/bin/python -m eval.gate --update` only for a deliberate improvement |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
 | Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check every anchored audit head and the legacy-rows anchor on Polygon (a rewrite with recomputed hashes is located between two anchored heads) |
 | Anchor the audit head now | `/dashboard/audit` as ADMIN → "Anchor audit head now" (step-up; one Amoy tx). The server also does it every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6, `0` = off) |

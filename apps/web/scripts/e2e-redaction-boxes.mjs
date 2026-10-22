@@ -66,6 +66,12 @@ async function drawnTiles(page, grid) {
   }, grid);
 }
 
+/** Tiles touched only by the printed title or footer (no identifier or other content on them). */
+function titleFooterTiles(page) {
+  const content = new Set([...page.entities, ...page.ignore].flatMap((e) => e.tiles));
+  return new Set((page.form_text ?? []).filter((e) => e.type === "title" || e.type === "footer").flatMap((e) => e.tiles).filter((t) => !content.has(t)));
+}
+
 function coverage(entities, flagged) {
   const caught = entities.filter((e) => e.tiles.every((t) => flagged.has(t)));
   const missed = entities.filter((e) => !e.tiles.every((t) => flagged.has(t))).map((e) => `${e.type}:${e.text}`);
@@ -106,6 +112,9 @@ async function main() {
     r.fir_boxes_drawn = drawn.length;
     r.fir_boxes_on_suggested_tiles = drawn.every((d) => d.aligned && suggested.has(d.tile)) && drawn.length === suggested.size;
     r.fir_coverage = coverage(fir.entities, suggested);
+    const firForm = titleFooterTiles(fir);
+    if (firForm.size === 0) throw new Error("manifest has no form_text; regenerate the test set");
+    r.fir_boxes_on_title_or_footer = drawn.filter((d) => firForm.has(d.tile)).length;
     await page.screenshot({ path: path.join(OUT, `${docId}-fir.png`), fullPage: true });
 
     await selectAllAndConfirm(page);
@@ -117,6 +126,8 @@ async function main() {
     r.followup_coverage = coverage(fu.entities, fuTiles);
     const fuDrawn = await drawnTiles(page, fu.grid);
     r.followup_boxes_on_suggested_tiles = fuDrawn.every((d) => d.aligned && fuTiles.has(d.tile)) && fuDrawn.length === fuTiles.size;
+    const fuForm = titleFooterTiles(fu);
+    r.followup_boxes_on_title_or_footer = fuDrawn.filter((d) => fuForm.has(d.tile)).length;
     await page.screenshot({ path: path.join(OUT, `${docId}-followup.png`), fullPage: true });
 
     console.log(JSON.stringify(r));
@@ -124,9 +135,16 @@ async function main() {
   }
   await browser.close();
 
-  const ok = results.every((r) => r.fir_boxes_on_suggested_tiles && r.followup_boxes_on_suggested_tiles && r.followup_gazetteer_suggestions > 0);
+  const ok = results.every(
+    (r) =>
+      r.fir_boxes_on_suggested_tiles &&
+      r.followup_boxes_on_suggested_tiles &&
+      r.followup_gazetteer_suggestions > 0 &&
+      r.fir_boxes_on_title_or_footer === 0 &&
+      r.followup_boxes_on_title_or_footer === 0
+  );
   console.log(`\nscreenshots: ${OUT}`);
-  console.log(ok ? "PASS: boxes line up with suggestions; gazetteer flags follow-up names" : "FAIL: see above");
+  console.log(ok ? "PASS: boxes line up with suggestions, none on the title or footer; gazetteer flags follow-up names" : "FAIL: see above");
   process.exit(ok ? 0 : 1);
 }
 

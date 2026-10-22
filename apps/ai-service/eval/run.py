@@ -61,7 +61,7 @@ def _case_key(doc_id: str) -> bytes:
     return hmac.new(b"eval-master-key", b"digivault/gazetteer/v1/case|" + doc_id.encode(), hashlib.sha256).digest()
 
 
-def gazetteer_section(manifest: dict, root: Path) -> list[str]:
+def gazetteer_section(manifest: dict, root: Path) -> tuple[list[str], dict]:
     """Each FIR's follow-up statement names the same people with no labels.
     Recall on it without the gazetteer, and with one holding the names an
     officer would have confirmed on the FIR: name suggestions there whose
@@ -89,7 +89,7 @@ def gazetteer_section(manifest: dict, root: Path) -> list[str]:
         for form in ("clean", "scanned"):
             n, wo, w, g = stats[(lang, form)]
             lines.append(f"| {LANG_NAMES[lang]} | {form} | {_pct(wo, n)} | **{_pct(w, n)}** | {g} |")
-    return lines
+    return lines, stats
 
 
 def cross_script_lines() -> list[str]:
@@ -129,6 +129,9 @@ def main() -> None:
     by_cutoff = defaultdict(lambda: defaultdict(lambda: [0, 0]))
     leaks = defaultdict(lambda: [0, 0])  # (lang, form) -> [docs, docs with a leak]
     prec = defaultdict(lambda: [0, 0])   # (lang, form) -> [flagged on identifiers, flagged excluding ignore-only]
+    # Printed form text (title, footer, field labels): tiles it touches that
+    # hold no identifier or ignore span. Any flag there is a false positive.
+    on_form = defaultdict(lambda: {"title_footer": [0, 0], "labels": [0, 0]})
     missed = []
     for page, flags in per_page:
         key = (page["lang"], page["form"])
@@ -155,6 +158,11 @@ def main() -> None:
         counted = flags.keys() - ignore_tiles
         prec[key][0] += len(counted & gold_tiles)
         prec[key][1] += len(counted)
+        content = gold_tiles | ignore_tiles
+        for kind, types in (("title_footer", ("title", "footer")), ("labels", ("label",))):
+            only = {t for e in page.get("form_text", []) if e["type"] in types for t in e["tiles"]} - content
+            on_form[key][kind][0] += len(only & flags.keys())
+            on_form[key][kind][1] += len(only)
 
     combos = [(lang, form) for lang in ("en", "hi", "kn") for form in ("clean", "scanned")]
     lines = [f"Test set: {manifest['docs_per_language']} documents per language, seed {manifest['seed']}, "
@@ -181,11 +189,26 @@ def main() -> None:
               "| Language | Form | " + " | ".join(f"≥ {c:.1f}" for c in CUTOFFS) + " |", "|---|---|" + "---|" * len(CUTOFFS)]
     for k in combos:
         lines.append(f"| {LANG_NAMES[k[0]]} | {k[1]} | " + " | ".join(_pct(by_cutoff[c][k][1], by_cutoff[c][k][0]).split(" ")[0] for c in CUTOFFS) + " |")
-    lines += gazetteer_section(manifest, args.set) + cross_script_lines()
+    lines += ["", "### Boxes on printed form text (tiles with no identifier on them)", "",
+              "| Language | Form | Title and footer tiles flagged | Field-label tiles flagged |", "|---|---|---|---|"]
+    for k in combos:
+        lines.append(f"| {LANG_NAMES[k[0]]} | {k[1]} | {_pct(*on_form[k]['title_footer'])} | {_pct(*on_form[k]['labels'])} |")
+    gaz_lines, gaz = gazetteer_section(manifest, args.set)
+    lines += gaz_lines + cross_script_lines()
     print("\n".join(lines))
+
+    # What eval.gate compares against the committed baseline.
+    summary = {}
+    for k in combos:
+        total = [sum(by_type[(*k, t)][0] for t in GOLD_TYPES), sum(by_type[(*k, t)][1] for t in GOLD_TYPES)]
+        partial = sum(by_type[(*k, t)][2] for t in GOLD_TYPES)
+        summary["|".join(k)] = {"recall": [total[1], total[0]], "partial_recall": [partial, total[0]], "precision": prec[k],
+                                "gazetteer_recall": [gaz[k][2], gaz[k][0]] if k in gaz else None,
+                                "title_footer_flagged": on_form[k]["title_footer"], "label_flagged": on_form[k]["labels"]}
 
     args.json.write_text(json.dumps({
         "manifest_seed": manifest["seed"],
+        "summary": summary,
         "by_type": {"|".join(k): v for k, v in by_type.items()},
         "leaks": {"|".join(k): v for k, v in leaks.items()},
         "precision": {"|".join(k): v for k, v in prec.items()},
