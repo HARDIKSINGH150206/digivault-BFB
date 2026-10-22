@@ -225,3 +225,16 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 - Computed on the server for every case response, so every screen shows the same value; the client only renders it. Alerts are in-app (dashboard list and case page); there are no emails or SMS.
 - The registration date and sections can be changed after creation (cases created before Phase 7 have neither). Every change is audited with old and new values, because moving the date moves the deadline.
 **Consequences:** Holidays don't extend the period (the statute doesn't say they do). A case that's re-opened starts showing its deadline again, likely overdue.
+
+## ADR-033 — Redaction recall: how it is measured, and the engine fixes it led to
+**Status:** Accepted (2026-10-22), implemented (Phase 6) except the case gazetteer (Open)
+**Context:** docs/07 Phase 6 asks for real recall numbers per entity type and language. Nothing measured the AI service before; the first run left at least one identifier visible in 80–100% of documents.
+**Decision:**
+- Test set generated, not collected: synthetic FIRs in English, Hindi and Kannada, clean and scan-degraded, with gold labels from each word's actual ink. A tuning set (seed 2026, sans) and a held-out set (seed 77, serif, not looked at until the changes were final). Real FIRs can't be used (BNS s.72), and synthetic ones give exact labels.
+- An identifier counts as caught only when **every** tile its ink touches is flagged: a half-masked name still leaks. Precision leaves out dates, FIR numbers, station names and ages.
+- The scan simulation passes pages through JPEG, then saves PNG. JPEG only imitates the scanner or phone that produced the upload; the evidence path stays PNG (rule 1).
+- Engine fixes, each found by the measurement: tile mapping uses the hashing code's `ceil(page / grid)` split; OCR input is background-flattened (page ÷ blurred page; no pixel moves, so tiles still line up); one mobile pattern for `9876543210`, `98765 43210` and `+91 …`; label patterns for "Name of …", "…'s name", "का नाम", genitive Kannada labels; U+200C allowed inside Kannada and Hindi names; a captured name (two words, or one of 4+ letters) is flagged wherever else it appears on the page.
+- Aadhaar matches are scored by Verhoeff checksum: valid 0.98, invalid 0.60 — kept, not dropped, since OCR may have misread one digit (fail-closed).
+- No confidence cutoff for pre-selection: anything at 0.8 or above loses ~10 points of recall in Hindi and Kannada (docs/08).
+**Open — case gazetteer (FR-33):** flagging names confirmed in one document across the case's other documents needs the names stored somewhere. Options: plaintext in Postgres (simple, but a database of victim names is exactly what BNS s.72 protects); a keyed hash per name token (HMAC with a server key, matched against hashed OCR tokens; no plaintext stored, key must be protected like the salt key); or keep it per upload only (no storage, the officer re-confirms in each document). Needs a human decision.
+**Consequences:** Rule 2 is unaffected: everything here only changes suggestions. Numbers are from typed synthetic pages and will be lower on handwriting and real scans (docs/08 §Limits). The test set shares label vocabulary between tuning and held-out sets.

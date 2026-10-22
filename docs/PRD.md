@@ -92,8 +92,8 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 | FR-30 | AI service suggests tiles (OCR + NER + regex; English, Hindi, Kannada); never touches hashes | ✅ |
 | FR-31 | Human confirmation required; server masks tiles and creates a new anchored version | ✅ |
 | FR-32 | Redaction proof: verifier proves redacted copy matches the original anchor except declared masked tiles | ✅ Phase 3 (officer download and share-link recipients) |
-| FR-33 | Case gazetteer: confirmed names auto-flagged across a case's documents | 🔜 Phase 6 |
-| FR-34 | Measured recall/precision per entity type and language | 🔜 Phase 6 |
+| FR-33 | Case gazetteer: confirmed names auto-flagged across a case's documents | 🔜 Phase 6 — open decision (ADR-033); names repeated within a page are flagged |
+| FR-34 | Measured recall/precision per entity type and language | ✅ Phase 6 (docs/08) |
 | FR-35 | Face/signature detection; cross-case pseudonyms; two-person unmasking | 🗺 |
 
 ### 5.5 Sharing, audit, verification, legal

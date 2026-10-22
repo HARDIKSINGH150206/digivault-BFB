@@ -9,12 +9,15 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import math
 import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Optional
+
+from .verhoeff import is_plausible_aadhaar
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +74,17 @@ def _tesseract_ok() -> bool:
             _tesseract_available = False
     return _tesseract_available
 
+# Name captures are case-sensitive inside otherwise case-insensitive
+# patterns, so a capture stops at the first lower-case word after the name.
+_NAME_EN = r"((?-i:[A-Z][a-zA-Z]+(?:[ \t]+[A-Z][a-zA-Z]+){0,3}))"
+# Devanagari and Kannada names; U+200C is the zero-width non-joiner Tesseract
+# puts after a word-final virama (ಮಹೇಶ್‌), which would otherwise end the name.
+_NAME_HI = r"([ऀ-ॿ\u200c]+(?:[ \t]+[ऀ-ॿ\u200c]+){0,2})"
+_NAME_KN = r"([ಀ-೿\u200c]+(?:[ \t]+[ಀ-೿\u200c]+){0,2})"
+
 EN_PATTERNS = [
-    ("phone", r"\b[6-9]\d{9}\b", 0.97),
+    # Mobile: 10 digits from 6-9, optionally +91/0 and split 5+5 ("98765 43210").
+    ("phone", r"(?<!\d)(?:\+91[\s\-]?|0)?[6-9]\d{4}[\s\-]?\d{5}(?!\d)", 0.97),
     ("phone", r"(?:\+91|0)[-\s]?\d{2,5}[-\s]?\d{6,8}", 0.95),
     ("aadhaar", r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b", 0.88),
     ("address", r"\b[1-9]\d{5}\b", 0.72),
@@ -83,12 +95,14 @@ EN_PATTERNS = [
     ("dob", r"\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b", 0.65),
     ("age", r"\baged?\s*:?\s*\d{1,3}\s*(?:years?|yrs?)?\b", 0.82),
     ("vehicle_reg", r"\b[A-Z]{2}[\s\-]?\d{2}[\s\-]?[A-Z]{1,3}[\s\-]?\d{4}\b", 0.90),
+    ("victim_name", r"(?:S/[Oo]|D/[Oo]|W/[Oo]|son of|daughter of|wife of)\s+" + _NAME_EN, 0.93),
     ("victim_name",
-     r"(?:S/[Oo]|D/[Oo]|W/[Oo]|son of|daughter of|wife of)\s+([A-Z][a-zA-Z]+(?:[ \t]+[A-Z][a-zA-Z]+){0,3})",
-     0.93),
+     r"(?:Complainant|Victim|Accused|Suspect|Witness|Informant)(?:'s)?(?:\s+name)?\s*:\s*" + _NAME_EN, 0.91),
     ("victim_name",
-     r"(?:Complainant|Victim|Accused|Suspect|Witness)\s*:\s*([A-Z][a-zA-Z]+(?:[ \t]+[A-Z][a-zA-Z]+){0,3})",
-     0.91),
+     r"Name\s+of\s+(?:the\s+)?(?:complainant|victim|accused|suspect|witness|informant)\s*:\s*" + _NAME_EN, 0.91),
+    ("victim_name", r"(?:Father|Mother|Husband|Wife|Guardian)(?:'s)?\s+name\s*:\s*" + _NAME_EN, 0.91),
+    # Unlabelled narrative mentions: "the complainant Sunita Devi stated".
+    ("victim_name", r"\b(?:complainant|victim|accused|suspect|witness|informant)\s+" + _NAME_EN, 0.85),
     ("pan", r"\b[A-Z]{5}\d{4}[A-Z]\b", 0.96),
     ("passport", r"\b[A-Z]\d{7}\b", 0.85),
     ("address",
@@ -100,13 +114,15 @@ HI_PATTERNS = [
     ("phone", r"(?:मोबाइल|दूरभाष|फ़ोन|फोन)\s*:?\s*([6-9]\d{9})", 0.97),
     ("aadhaar", r"(?:आधार(?:\s*संख्या)?)\s*:?\s*(\d{4}[\s\-]?\d{4}[\s\-]?\d{4})", 0.95),
     ("age", r"(?:आयु|उम्र)\s*:?\s*\d{1,3}\s*(?:वर्ष|साल)?", 0.88),
+    # "का नाम" (name of) may sit between the role and the colon; ड़ is matched
+    # precomposed (U+095C) or as ड + nukta, as OCR emits either.
     ("victim_name",
-     r"(?:पीड़िता?|शिकायतकर्ता|आरोपी|साक्षी|गवाह)\s*:?\s*([ऀ-ॿ]+(?:[ \t]+[ऀ-ॿ]+){0,3})",
+     r"(?:पी(?:ड़|ड़|ड)िता?|शिकायतकर्ता|सूचनाकर्ता|आरोपी|अभियुक्त|साक्षी|गवाह)(?:\s*(?:का|की|के)\s*नाम)?\s*:?\s*" + _NAME_HI,
      0.91),
     ("victim_name",
-     r"(?:पुत्री|पुत्र|पिता|पत्नी|पति)\s*:?\s*(?:श्रीमती|श्री|कु\.?)?\s*([ऀ-ॿ]+(?:[ \t]+[ऀ-ॿ]+){0,2})",
+     r"(?:पुत्री|पुत्र|पिता|माता|पत्नी|पति)(?:\s*(?:का|की|के)\s*नाम)?\s*:?\s*(?:श्रीमती|श्री|कु\.?)?\s*" + _NAME_HI,
      0.89),
-    ("address", r"(?:निवास|पता|मकान\s*नं\.?|ग्राम|जिला|थाना)\s*:?\s*([ऀ-ॿ\w\s,\-\.]+?)(?:\n|$)", 0.78),
+    ("address", r"(?:निवासी|निवास|पता|मकान\s*नं\.?|ग्राम|जिला|थाना)\s*:?\s*([ऀ-ॿ\w\s,\-\.]+?)(?:\n|$)", 0.78),
     ("case_number", r"(?:मु\.?अ\.?सं\.?|प्रकरण\s*क्र\.?|अपराध\s*क्रमांक)\s*:?\s*([\d/\-]+)", 0.97),
     ("dob", r"(?:जन्म\s*तिथि|दिनांक)\s*:?\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})", 0.90),
     ("phone", r"[०-९]{10}", 0.85),
@@ -120,15 +136,16 @@ KN_PATTERNS = [
     ("phone", r"(?:ಮೊಬೈಲ್|ದೂರವಾಣಿ|ಫೋನ್)\u200c?\s*(?:ಸಂಖ್ಯೆ)?\s*:?\s*([6-9]\d{9})", 0.97),
     ("aadhaar", r"ಆಧಾರ್\u200c?\s*(?:ಸಂಖ್ಯೆ)?\s*:?\s*(\d{4}[\s\-]?\d{4}[\s\-]?\d{4})", 0.95),
     ("age", r"ವಯಸ್ಸು\s*:?\s*\d{1,3}\s*(?:ವರ್ಷ)?", 0.88),
+    # Genitive forms ("ಆರೋಪಿಯ ಹೆಸರು:" = accused's name) as well as the bare role.
     ("victim_name",
-     r"(?:ಸಂತ್ರಸ್ತೆ|ದೂರುದಾರರು|ದೂರುದಾರ|ಆರೋಪಿ|ಸಾಕ್ಷಿ)\s*:?\s*([ಀ-೿]+(?:[ \t]+[ಀ-೿]+){0,3})",
+     r"(?:ಸಂತ್ರಸ್ತೆ(?:ಯ)?|ದೂರುದಾರ(?:ರು|ರ)?|ಆರೋಪಿ(?:ಯ)?|ಸಾಕ್ಷಿ(?:ಯ)?)\u200c?(?:\s*ಹೆಸರು)?\s*:?\s*" + _NAME_KN,
      0.91),
     ("victim_name",
-     r"(?:ತಂದೆ|ತಾಯಿ|ಪತಿ|ಪತ್ನಿ|ಮಗಳು|ಮಗ)\s*:?\s*(?:ಶ್ರೀಮತಿ|ಶ್ರೀ|ಕು\.?)?\s*([ಀ-೿]+(?:[ \t]+[ಀ-೿]+){0,2})",
+     r"(?:ತಂದೆ(?:ಯ)?|ತಾಯಿ(?:ಯ)?|ಪತಿ(?:ಯ)?|ಪತ್ನಿ(?:ಯ)?|ಮಗಳು|ಮಗ)(?:\s*ಹೆಸರು)?\s*:?\s*(?:ಶ್ರೀಮತಿ|ಶ್ರೀ|ಕು\.?)?\s*" + _NAME_KN,
      0.89),
-    # Up to 6 address-like tokens; a ':' ends it, so the next "label: value"
+    # Up to 9 address-like tokens; a ':' ends it, so the next "label: value"
     # on the same OCR line (e.g. ದಿನಾಂಕ: …) keeps its own entity type.
-    ("address", r"(?:ವಿಳಾಸ|ಗ್ರಾಮ|ಜಿಲ್ಲೆ|ಠಾಣೆ)\s*:?\s*([ಀ-೿\d\-/#.,]+(?:[ \t]+[ಀ-೿\d\-/#.,]+){0,5})", 0.78),
+    ("address", r"(?:ವಿಳಾಸ|ವಾಸ|ಗ್ರಾಮ|ಜಿಲ್ಲೆ|ಠಾಣೆ)\s*:?\s*([ಀ-೿\u200c\d\-/#.,()]+(?:[ \t]+[ಀ-೿\u200c\d\-/#.,()]+){0,8})", 0.78),
     ("case_number", r"(?:ಪ್ರಕರಣ\s*ಸಂಖ್ಯೆ|ಅಪರಾಧ\s*ಸಂಖ್ಯೆ)\s*:?\s*([\d/\-]+)", 0.97),
     ("dob", r"(?:ಜನ್ಮ\s*ದಿನಾಂಕ|ದಿನಾಂಕ)\s*:?\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})", 0.90),
     ("phone", r"[೦-೯]{10}", 0.85),
@@ -160,13 +177,29 @@ class WordBox:
     height: int
     conf: float
 
+def _flatten_background(image):
+    """Grey page divided by a heavily blurred copy of itself: stains, yellowed
+    paper and uneven lighting go to white, ink stays dark. Without it
+    Tesseract drops whole blocks of lines under a coffee stain (Phase 6).
+    Only the OCR input changes; no pixel moves, so word boxes still map to
+    the hashed tiles."""
+    import numpy as np
+    from PIL import ImageFilter
+
+    gray = image.convert("L")
+    background = gray.filter(ImageFilter.GaussianBlur(radius=max(gray.size) // 60 or 1))
+    g = np.asarray(gray, dtype=np.float32)
+    b = np.maximum(np.asarray(background, dtype=np.float32), 1.0)
+    from PIL import Image
+    return Image.fromarray(np.clip(g / b * 255.0, 0, 255).astype(np.uint8))
+
 def _ocr_page(png_bytes: bytes) -> tuple[str, list[WordBox]]:
     if not _tesseract_ok():
         return "", []
     from PIL import Image
     import pytesseract
 
-    image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    image = _flatten_background(Image.open(io.BytesIO(png_bytes)))
     data = pytesseract.image_to_data(
         image, lang=_ocr_lang(),
         output_type=pytesseract.Output.DICT,
@@ -206,15 +239,20 @@ def _span_to_grids(
 ) -> list[tuple[int, int]]:
     results = []
     seen: set[tuple[int, int]] = set()
+    # Same split as the hashing code (crypto-core tiles.ts): ceil-sized tiles,
+    # the last row/column narrower. A proportional x/width*grid drifts up to
+    # a whole tile off toward the right and bottom edges.
+    tile_w = max(1, math.ceil(page_width / grid_size))
+    tile_h = max(1, math.ceil(page_height / grid_size))
     offset = 0
     for box in word_boxes:
         word_end = offset + len(box.text)
         if offset < char_end and word_end > char_start:
             # Every tile the box overlaps — left edge to right edge, top to bottom
-            col_lo = int(box.left / max(page_width, 1) * grid_size)
-            col_hi = int((box.left + box.width) / max(page_width, 1) * grid_size)
-            row_lo = int(box.top / max(page_height, 1) * grid_size)
-            row_hi = int((box.top + box.height) / max(page_height, 1) * grid_size)
+            col_lo = box.left // tile_w
+            col_hi = (box.left + max(box.width, 1) - 1) // tile_w
+            row_lo = box.top // tile_h
+            row_hi = (box.top + max(box.height, 1) - 1) // tile_h
             col_lo = max(0, min(col_lo, grid_size - 1))
             col_hi = max(0, min(col_hi, grid_size - 1))
             row_lo = max(0, min(row_lo, grid_size - 1))
@@ -256,6 +294,11 @@ def _run_spacy(text, word_boxes, page_width, page_height, grid_size, source):
             detections.append(Detection(entity_type=etype, confidence=round(confidence, 3), source=source, row=grid[0], col=grid[1]))
     return detections
 
+# Aadhaar matches are scored by checksum (ADR-033): a valid one is near
+# certain; an invalid one is kept, lower, since OCR may have misread a digit.
+AADHAAR_VALID_CONF = 0.98
+AADHAAR_INVALID_CONF = 0.60
+
 def _run_regex(text, word_boxes, page_width, page_height, grid_size, source):
     if not text.strip():
         return []
@@ -264,8 +307,37 @@ def _run_regex(text, word_boxes, page_width, page_height, grid_size, source):
         for m in pattern.finditer(text):
             start = m.start(1) if m.lastindex else m.start()
             end = m.end(1) if m.lastindex else m.end()
+            conf = base_conf
+            if etype == "aadhaar":
+                conf = AADHAAR_VALID_CONF if is_plausible_aadhaar(text[start:end]) else AADHAAR_INVALID_CONF
             for grid in _span_to_grids(start, end, text, word_boxes, page_width, page_height, grid_size):
-                detections.append(Detection(entity_type=etype, confidence=round(base_conf, 3), source=source, row=grid[0], col=grid[1]))
+                detections.append(Detection(entity_type=etype, confidence=round(conf, 3), source=source, row=grid[0], col=grid[1]))
+    return detections
+
+PROPAGATED_NAME_CONF = 0.85
+
+def _propagate_names(text, word_boxes, page_width, page_height, grid_size, source):
+    """A name found once by a labelled pattern is flagged wherever else it
+    appears on the page: FIR narratives repeat the victim's name with no
+    label in front of it (Phase 6 measurement)."""
+    if not text.strip():
+        return []
+    names: set[tuple[str, ...]] = set()
+    for etype, pattern, _ in _compiled_patterns:
+        if etype != "victim_name":
+            continue
+        for m in pattern.finditer(text):
+            if not m.lastindex:
+                continue
+            tokens = tuple(t.strip("‌") for t in m.group(1).split()[:2])
+            if len(tokens) == 2 or (tokens and len(tokens[0]) >= 4):
+                names.add(tokens)
+    detections = []
+    for tokens in names:
+        needle = re.compile(r"‌?\s+".join(re.escape(t) for t in tokens) + "‌?")
+        for m in needle.finditer(text):
+            for grid in _span_to_grids(m.start(), m.end(), text, word_boxes, page_width, page_height, grid_size):
+                detections.append(Detection(entity_type="victim_name", confidence=PROPAGATED_NAME_CONF, source=source, row=grid[0], col=grid[1]))
     return detections
 
 # Priority order — more specific wins over generic
@@ -301,9 +373,10 @@ def _page_suggestions(grid_size: int, page: PageInput) -> list[Suggestion]:
         source = "text_layer"   # tesseract OCR result, reusing allowed schema value
         spacy_hits = _run_spacy(full_text, word_boxes, page.width_px, page.height_px, grid_size, source)
         regex_hits = _run_regex(full_text, word_boxes, page.width_px, page.height_px, grid_size, "text_layer")
+        name_hits = _propagate_names(full_text, word_boxes, page.width_px, page.height_px, grid_size, "text_layer")
         return [
             Suggestion(page_index=page.page_index, row=d.row, col=d.col, entity_type=d.entity_type, confidence_score=d.confidence, source=d.source)
-            for d in _deduplicate(spacy_hits + regex_hits)
+            for d in _deduplicate(spacy_hits + regex_hits + name_hits)
         ]
     except Exception as exc:
         logger.error("page %d failed: %s", page.page_index, exc, exc_info=True)

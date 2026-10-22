@@ -18,7 +18,7 @@ How to set up, run, test and change the project. Read `CLAUDE.md` first — its 
 apps/web/             Next.js 14 app: UI, API routes, server re-hash, anchoring, /verify
 apps/web/scripts/     smoke-test.mjs, e2e-part1..3.mjs, e2e-certificate.mjs, e2e-deadlines.mjs (Playwright), seed-deadline-cases.mjs
 apps/web/prisma/      seed-demo.ts (realistic demo data through the real pipeline)
-apps/ai-service/      FastAPI redaction-suggestion service
+apps/ai-service/      FastAPI redaction-suggestion service; eval/ (recall test set + scorer), tests/
 packages/crypto-core/ PDF→PNG, tile hashing, Merkle (shared by browser, server, /verify)
 packages/crypto-core/poc/  in-browser grid-size proof of concept
 packages/contracts/   EvidenceAnchor.sol, Hardhat, deployments/amoy.json
@@ -87,6 +87,8 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | BNSS deadline demo cases / UI check (no gas) | `cd apps/web && node scripts/seed-deadline-cases.mjs` / `node scripts/e2e-deadlines.mjs` |
 | Certificate QR on a phone-sized browser (existing anchor, no gas) | `cd apps/web && CERT_DOCUMENT_ID=… CERT_VERSION_ID=… node scripts/e2e-certificate.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
+| AI service unit tests | `cd apps/ai-service && .venv/bin/python -m unittest discover -s tests -t .` |
+| Redaction recall (both test sets, ~2 min, no services needed) | `pnpm eval:redaction` — results in `docs/08`; misses in `apps/ai-service/eval/out/**/results.json` |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
 | Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check every anchored audit head and the legacy-rows anchor on Polygon (a rewrite with recomputed hashes is located between two anchored heads) |
 | Anchor the audit head now | `/dashboard/audit` as ADMIN → "Anchor audit head now" (step-up; one Amoy tx). The server also does it every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6, `0` = off) |
