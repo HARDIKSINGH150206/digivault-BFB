@@ -24,6 +24,7 @@ Held-out set: --seed 77 --font serif --out eval/out/holdout
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import random
@@ -243,7 +244,6 @@ def scan(img: Image.Image, entities: list[Entity], rng: random.Random) -> tuple[
     a += nprng.normal(0, 9, a.shape)
     out = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
 
-    import io
     quality = rng.randint(40, 60)
     buf = io.BytesIO()
     out.save(buf, "JPEG", quality=quality)
@@ -284,7 +284,6 @@ def main() -> None:
         for n in range(1, args.docs_per_language + 1):
             doc_id = f"{lang}-{n:02d}"
             img, gold, ignore = render(build_document(lang, rng, n))
-            scanned, s_gold, s_ignore = None, None, None
             scanned, s_both, meta = scan(img, gold + ignore, rng)
             s_gold, s_ignore = s_both[: len(gold)], s_both[len(gold):]
             for form, image, g, ig, extra in (("clean", img, gold, ignore, {}), ("scanned", scanned, s_gold, s_ignore, meta)):
