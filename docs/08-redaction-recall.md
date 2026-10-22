@@ -184,7 +184,7 @@ Held-out misses: Nair / नायर, Begum / बेगम, Krishna / कृष�
 ```bash
 pnpm eval:redaction && pnpm eval:gate      # both sets, all tables, then the gate (~6 min)
 cd apps/ai-service && .venv/bin/python -m unittest discover -s tests -t .
-cd apps/web && node scripts/e2e-redaction-boxes.mjs   # needs both services, GAZETTEER_KEY, ~0.014 POL
+cd apps/web && node scripts/e2e-redaction-boxes.mjs   # needs both services, GAZETTEER_KEY, ~0.028 POL
 ```
 
 Per-identifier misses: `apps/ai-service/eval/out/results.json` and `eval/out/holdout/results.json` (gitignored).

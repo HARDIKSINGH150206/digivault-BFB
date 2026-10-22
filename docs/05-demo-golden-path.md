@@ -4,10 +4,11 @@ The one live demo sequence: what to prepare, what to click, what the audience sh
 
 Every "Verified" or "Anchored" on screen comes from a real check against Polygon Amoy; nothing is mocked. Target length: **about 8 minutes**, plus 2 minutes of questions.
 
-**Not ready yet (Phase 8):**
-- The messy scan (skewed, JPEG-sourced, coffee stain) isn't in `apps/web/public/sample-firs/` yet. Until it is, use a seeded FIR PDF or `apps/web/scripts/e2e-test-part3.pdf`.
-- The demo documents haven't been re-anchored on contract v2 yet.
-- This path hasn't been rehearsed yet. Phase 8 asks for two full rehearsals.
+**Status (2026-10-22):**
+- **Messy scan:** `apps/web/public/sample-firs/messy-fir.pdf` — synthetic English FIR, 3.2° skew, fold crease, coffee stain over the Aadhaar and address, heavy noise, JPEG page inside the PDF (`apps/ai-service/eval/messy.py`; gold labels in `messy-fir.gold.json`). In the app its suggestions cover 12/12 identifiers fully.
+- **Demo documents:** all 9 have a current version in proof format v2, anchored on contract v2 (the legacy v1 version stays as version 1 of each chain; `seed-demo.ts` does this for any document still on v1).
+- **Rehearsed twice** with `node scripts/golden-path.mjs` (10/10 steps passed both times, 44–52 s of machine time; the second run on the messy scan).
+- **Cross-browser:** Chromium and Firefox give identical results (`node scripts/e2e-three-browsers.mjs`). **WebKit not yet run:** this machine lacks `libevent-2.1-7t64` and `libmanette-0.2-0`.
 
 ---
 
@@ -28,12 +29,13 @@ From `apps/web/prisma/seed-demo.ts` (named demo accounts). The `prisma/seed-for-
 | 1 | `docker compose up -d` | Postgres and MinIO up |
 | 2 | AI service: `cd apps/ai-service && .venv/bin/uvicorn app.main:app --port 8001` | `GET :8001/docs` loads |
 | 3 | Web app: `AMOY_RPC_URL=https://polygon-amoy.drpc.org AUDIT_ANCHOR_INTERVAL_HOURS=0 pnpm --filter @digivault/web dev` | `/verify` loads. The schedule is off so the audit anchor only runs when you trigger it in step 8. |
-| 4 | Wallet balance ≥ 0.02 POL (one rehearsal uses ~0.006–0.01) | Polygonscan page for `0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873` |
+| 4 | Wallet balance ≥ 0.03 POL (one rehearsal uses ~0.008) | Polygonscan page for `0x30F5fD617B9f7f73eCED0FB37dB2cd7dFEB32873` |
 | 5 | Seeds: `cd apps/web && node --experimental-strip-types prisma/seed-demo.ts && node scripts/seed-deadline-cases.mjs` | Dashboard shows the demo cases; deadline cases are dated from today |
 | 6 | `pnpm audit:verify --onchain` | Exit 0, "audit log verified up to entry #N" |
 | 7 | Phone on the same network; `PUBLIC_BASE_URL=http://<laptop LAN IP>:3000` in `apps/web/.env.local` (restart the web app) | Certificate QR opens on the phone (ADR-031: hashing works over plain HTTP) |
 | 8 | Browser tabs: dashboard (logged in as the IO), an incognito window on `/verify`, the Polygonscan page for contract v2 `0x01e7e6f83f55873E906465d3447cB43434D4ee67` | — |
 | 9 | Downloads folder empty, so the demo files are easy to find | — |
+| 10 | Dry run: `cd apps/web && node scripts/golden-path.mjs` (uses the messy scan, works in a fresh REHEARSAL case, ~0.008 POL) | 10/10 steps pass |
 
 ## 3. The sequence
 
@@ -43,7 +45,7 @@ From `apps/web/prisma/seed-demo.ts` (named demo accounts). The `prisma/seed-for-
 | 2 | 0:30 | Log in as the IO | Dashboard: cases with BNSS deadline badges; "Needs your attention" opens with deadline alerts, closest deadline first | BNSS s.193(2): two months for rape and POCSO investigations. Day 50 is amber, day 55 red. Only covered sections count (ADR-032). |
 | 3 | 1:15 | Open a case → **Upload document** → choose the messy scan | "Rendering pages and computing fingerprints in your browser…", then "Uploading. The server is re-checking every fingerprint…", then the version page with the anchor pending | The browser hashes every page as a 20×20 grid of salted tiles; the server re-hashes from the raw pixels and rejects any mismatch (rule 4). OCR plays no part in the hash, so a coffee-stained scan is just as tamper-evident (rule 2). |
 | 4 | 2:15 | Wait for **Anchored**; open the Polygonscan link | The anchor transaction on Amoy | Dual anchor: Polygon plus an Object-Locked MinIO copy (rule 3). Only a 32-byte commitment goes on chain, no content or PII. |
-| 5 | 2:45 | Review the AI suggestions (name, phone, Aadhaar, each with confidence and source); add one tile by hand; **Create redacted version** → fingerprint or PIN | v2 created, anchored, linked to v1 in the version chain | AI only suggests; a human confirms, with step-up. The redacted copy is a new anchored version, not an overwrite. |
+| 5 | 2:45 | Review the AI suggestions (name, phone, Aadhaar, each with confidence, source and a "high confidence" / "check" chip); untick anything wrong, add one tile by hand; **Create redacted version** → fingerprint or PIN | v2 created, anchored, linked to v1 in the version chain | AI only suggests; a human confirms, with step-up. The redacted copy is a new anchored version, not an overwrite. On the messy scan a few amber "Dob" boxes sit on the title row (the skewed date line shares that tile row) — unticking them is the point to make: review is mandatory. |
 | 6 | 3:45 | On the redacted version page: **Download verification bundle**, **Download redaction proof**, **Download certificate** (step-up) | Page PNGs, `verification-proof.json`, the redaction proof, the s.63 certificate PDF with a QR | The certificate cites the anchored commitment and tx directly; a person still has to sign it (Part A and Part B). |
 | 7 | 4:30 | Incognito `/verify`: drop the redaction proof and the redacted pages | **Verified redacted copy**, "Verified against official DigiVault contract" | A court can check, without logging in and without our server, that this redacted copy came from the anchored original and only the masked tiles changed (rule 5). |
 | 8 | 5:15 | Drop a copy of a page with one pixel changed | **Mismatch**, naming the tile | Any change, however small, is found and located. |
@@ -75,9 +77,9 @@ node -e 'const sharp=require("sharp");sharp(process.argv[1]).ensureAlpha().raw()
 
 | Step | Anchors | ≈ POL |
 |---|---|---|
-| 3–4 upload | 1 | 0.0015–0.003 |
-| 5 redacted version | 1 | 0.0015–0.003 |
+| 3–4 upload | 1 | 0.0031 |
+| 5 redacted version | 1 | 0.0031 |
 | 10 audit head | 1 | 0.0015 |
-| **Total per rehearsal** | 3 | **≈ 0.005–0.008** |
+| **Total per rehearsal** | 3 | **≈ 0.008** |
 
-Measured 2026-10-20: one anchor used 50,154 gas = 0.0015 POL at ~30 gwei.
+Measured 2026-10-22 at the 30 gwei priority cap: a document anchor, which also carries the current audit head, uses ~102k gas = 0.0031 POL; a standalone audit-head anchor ~50k gas = 0.0015 POL. (Earlier notes said 0.0015 for every anchor; that was the audit-only figure.)

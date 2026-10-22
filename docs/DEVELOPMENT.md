@@ -88,7 +88,10 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | Certificate QR on a phone-sized browser (existing anchor, no gas) | `cd apps/web && CERT_DOCUMENT_ID=… CERT_VERSION_ID=… node scripts/e2e-certificate.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
 | AI service unit tests | `cd apps/ai-service && .venv/bin/python -m unittest discover -s tests -t .` |
-| Redaction boxes + gazetteer in the real UI (both services, `GAZETTEER_KEY` set, test set generated; ~0.014 POL) | `cd apps/web && node scripts/e2e-redaction-boxes.mjs` |
+| Redaction boxes + gazetteer in the real UI (both services, `GAZETTEER_KEY` set, test set generated; ~0.028 POL) | `cd apps/web && node scripts/e2e-redaction-boxes.mjs` |
+| Demo golden path, scripted rehearsal (docs/05; both services, seeds run; ~0.008 POL) | `cd apps/web && node scripts/golden-path.mjs` (`GOLDEN_PDF=…` for another file) |
+| Same hashes in Chromium, Firefox and WebKit (vectors + a golden-path run's files; no gas) | `cd apps/web && node scripts/e2e-three-browsers.mjs [files-dir]` (`E2E_ENGINES=chromium,firefox` for a subset) |
+| Regenerate the demo's messy scan | `cd apps/ai-service && .venv/bin/python -m eval.messy` |
 | Redaction recall + gazetteer (both test sets, ~6 min, no services needed) | `pnpm eval:redaction` — results in `docs/08`; misses in `apps/ai-service/eval/out/**/results.json` |
 | Redaction quality gate (after `eval:redaction`; also in CI) | `pnpm eval:gate` — fails if recall drops at all or precision by > 2 points; `cd apps/ai-service && .venv/bin/python -m eval.gate --update` only for a deliberate improvement |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
@@ -98,7 +101,7 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | Public-proof bucket test (local MinIO) | `cd apps/web && MINIO_INTEGRATION=1 pnpm exec vitest run src/lib/storage.minio.test.ts` |
 | Commit pre-chain audit rows (one-off, already done on the dev DB) | `node apps/web/scripts/audit-legacy-genesis.mjs [--dry-run]` — sends one Amoy tx |
 
-The smoke and e2e scripts need the web app running (and the AI service for parts 2–3). Each anchors versions on Amoy (smoke: 2, part 1: 1, parts 2–3: 2 each; ≈0.003 POL per anchor).
+The smoke and e2e scripts need the web app running (and the AI service for parts 2–3). Each anchors versions on Amoy (smoke: 2, part 1: 1, parts 2–3: 2 each; ≈0.0031 POL per document anchor, 0.0015 per standalone audit-head anchor).
 
 ## 5. Database changes
 
