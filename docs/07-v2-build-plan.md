@@ -163,6 +163,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 6 — Redaction recall measurement (Days 5–6)
 
+**Status (2026-10-22, branch `v2/phase-6-recall`): measured and improved; case gazetteer open.** `pnpm eval:redaction` generates a tuning set and a held-out set (60 pages each: English, Hindi, Kannada × clean and scanned) and prints recall per type and language, leak rate, precision and recall at confidence cutoffs. Every identifier fully covered, held-out set: 74–94% before → 96–100% after (docs/08). Changes the measurement led to: tile mapping now matches the hashing split, background flattening before OCR, phone and label patterns, Kannada joiner, in-page name propagation, Verhoeff scoring (ADR-033). Not done: the case gazetteer (needs a decision on storing names, ADR-033 Open), a real scanned FIR, and the pitch slide.
+
 - **Test set:** synthetic FIRs with gold labels for names, phone numbers, Aadhaar numbers, addresses. Start with **English, Hindi, Kannada** (what the AI service supports: `real_suggestions.py`). Tamil/Telugu only if OCR + NER support is added first — otherwise they measure a missing feature.
 - Each FIR in two forms: native text PDF and a scanned image version (rotated, noisy, JPEG-sourced) so the OCR path is measured.
 - Aadhaar detection validated with the Verhoeff checksum.
