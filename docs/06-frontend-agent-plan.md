@@ -235,11 +235,11 @@ For each item, record:
 Known gaps to log at the start, without building workarounds:
 - **No audit-log read endpoint.** The activity table is reconstructed from timestamps, so label it "Recent activity", not "Audit trail".
 - **No version-list endpoint** for a document. The version chain strip may need `GET /api/v1/documents/{d}/versions`.
-- **`docs/05-demo-golden-path.md` does not exist yet.** §10 below is a draft until it does.
+- **`docs/05-demo-golden-path.md`** now exists (Phase 8) and supersedes §10 below.
 
 The backend reads this file. It never edits your UI files, and you never edit theirs.
 
-## 10. Demo click path (draft until `docs/05-demo-golden-path.md` exists)
+## 10. Demo click path (superseded by `docs/05-demo-golden-path.md`)
 
 1. Log in as an Investigating Officer (`DL/2019/3301`) and open the seeded case.
 2. Upload a messy multi-page FIR from `public/sample-firs/`. Watch the hashing stages, then see "Server recomputed ✓" and the anchor pending.
