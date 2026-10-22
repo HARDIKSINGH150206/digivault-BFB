@@ -38,7 +38,7 @@ cp packages/contracts/.env.example packages/contracts/.env
 ```
 
 Fill in:
-- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials. `PUBLIC_BASE_URL` (certificate QR links; use a LAN IP or tunnel for phone demos). `SALT_ENCRYPTION_KEY` (`openssl rand -base64 32`) — required from Phase 1. Optional: `AMOY_RPC_FALLBACK_URLS`, `MINIO_ANCHOR_BUCKET` / `MINIO_ANCHOR_RETENTION_DAYS`, `MINIO_PUBLIC_PROOF_BUCKET` / `MINIO_PUBLIC_URL`, and the `ANCHOR_*` fee caps — see `apps/web/.env.example`.
+- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials. `PUBLIC_BASE_URL` (certificate QR links; use a LAN IP or tunnel for phone demos). `SALT_ENCRYPTION_KEY` (`openssl rand -base64 32`) — required from Phase 1. `GAZETTEER_KEY` (another `openssl rand -base64 32`, never the salt key) — optional; turns on the case gazetteer (ADR-034). Back it up like the salt key. Optional: `AMOY_RPC_FALLBACK_URLS`, `MINIO_ANCHOR_BUCKET` / `MINIO_ANCHOR_RETENTION_DAYS`, `MINIO_PUBLIC_PROOF_BUCKET` / `MINIO_PUBLIC_URL`, and the `ANCHOR_*` fee caps — see `apps/web/.env.example`.
 - `packages/contracts/.env` — `AMOY_RPC_URL`, `DEPLOYER_PRIVATE_KEY`. The web app reads the signing key from here. **Never commit it.**
 
 Database:
@@ -88,7 +88,8 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | Certificate QR on a phone-sized browser (existing anchor, no gas) | `cd apps/web && CERT_DOCUMENT_ID=… CERT_VERSION_ID=… node scripts/e2e-certificate.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
 | AI service unit tests | `cd apps/ai-service && .venv/bin/python -m unittest discover -s tests -t .` |
-| Redaction recall (both test sets, ~2 min, no services needed) | `pnpm eval:redaction` — results in `docs/08`; misses in `apps/ai-service/eval/out/**/results.json` |
+| Redaction boxes + gazetteer in the real UI (both services, `GAZETTEER_KEY` set, test set generated; ~0.014 POL) | `cd apps/web && node scripts/e2e-redaction-boxes.mjs` |
+| Redaction recall + gazetteer (both test sets, ~6 min, no services needed) | `pnpm eval:redaction` — results in `docs/08`; misses in `apps/ai-service/eval/out/**/results.json` |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
 | Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check every anchored audit head and the legacy-rows anchor on Polygon (a rewrite with recomputed hashes is located between two anchored heads) |
 | Anchor the audit head now | `/dashboard/audit` as ADMIN → "Anchor audit head now" (step-up; one Amoy tx). The server also does it every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6, `0` = off) |

@@ -10,6 +10,7 @@ import { generateTileSalts, saltKeyFromEnv, storeVersionSalts, type SaltKey } fr
 import { PROOF_V2 } from "@/lib/proof-v2";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { anchorVersionInBackground } from "@/lib/anchor";
+import { addConfirmedNames } from "@/lib/gazetteer";
 
 export const runtime = "nodejs";
 
@@ -147,7 +148,17 @@ export async function POST(
     })),
   });
 
-  await prisma.document.update({ where: { id: documentId }, data: { currentVersionId: newVersion.id } });
+  const document = await prisma.document.update({ where: { id: documentId }, data: { currentVersionId: newVersion.id } });
+
+  // Names on the tiles the officer just confirmed join the case gazetteer, so
+  // they are flagged in the case's other documents (ADR-034). Never throws.
+  const gazetteerNamesAdded = await addConfirmedNames({
+    caseId: document.caseId,
+    priorVersionId: priorVersion.id,
+    newVersionId: newVersion.id,
+    confirmedTileIds: tiles.map((t) => t.id),
+    actorId: actor.userId,
+  });
 
   // Only now — pages, tiles and flags all written — is this a complete
   // redacted version that share links may serve (see shares/[token]/download).
@@ -173,6 +184,7 @@ export async function POST(
       priorVersionNo: priorVersion.versionNo,
       versionNo,
       redactedTileIndices: [...body.confirmed_tile_indices].sort((a, b) => a - b),
+      gazetteerNamesAdded,
       tilesByPage: Object.fromEntries(
         [...tilesByPage].map(([page, cells]) => [page, cells.map((c) => `R${c.row}C${c.col}`)])
       ),

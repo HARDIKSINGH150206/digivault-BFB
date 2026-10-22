@@ -1,3 +1,5 @@
+import type { CaseGazetteer } from "./gazetteer";
+
 /**
  * HTTP client for apps/ai-service, the bilingual (English + Hindi) NER
  * redaction service (see apps/ai-service/app/real_suggestions.py). CLAUDE.md rule 2:
@@ -13,12 +15,15 @@ export interface AiSuggestion {
   entityType: string;
   confidenceScore: number;
   source: string;
+  /** Keyed hashes of the names the tile covers (ADR-034); never the names themselves. */
+  nameHashes: string[];
 }
 
 export async function requestRedactionSuggestions(
   documentVersionId: string,
   gridSize: number,
-  pages: { pageIndex: number; widthPx: number; heightPx: number; pngBytes: Buffer }[]
+  pages: { pageIndex: number; widthPx: number; heightPx: number; pngBytes: Buffer }[],
+  gazetteer: CaseGazetteer | null = null
 ): Promise<AiSuggestion[]> {
   const baseUrl = process.env.AI_SERVICE_URL;
   if (!baseUrl) throw new Error("AI_SERVICE_URL is not set");
@@ -35,6 +40,7 @@ export async function requestRedactionSuggestions(
         height_px: p.heightPx,
         png_base64: p.pngBytes.toString("base64"),
       })),
+      ...(gazetteer ? { gazetteer } : {}),
     }),
     signal: AbortSignal.timeout(45_000),
   });
@@ -44,7 +50,15 @@ export async function requestRedactionSuggestions(
   }
 
   const body = (await res.json()) as {
-    suggestions: { page_index: number; row: number; col: number; entity_type: string; confidence_score: number; source: string }[];
+    suggestions: {
+      page_index: number;
+      row: number;
+      col: number;
+      entity_type: string;
+      confidence_score: number;
+      source: string;
+      name_hashes?: unknown;
+    }[];
   };
 
   return body.suggestions.map((s) => ({
@@ -54,5 +68,8 @@ export async function requestRedactionSuggestions(
     entityType: s.entity_type,
     confidenceScore: s.confidence_score,
     source: s.source,
+    nameHashes: Array.isArray(s.name_hashes)
+      ? s.name_hashes.filter((h): h is string => typeof h === "string" && /^[0-9a-f]{64}$/.test(h))
+      : [],
   }));
 }

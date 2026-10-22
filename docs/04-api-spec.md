@@ -158,8 +158,15 @@ Fetches AI/OCR-targeting output queued after upload (`docs/02` steps 10-11). **S
 }
 ```
 - `status`: `PENDING` (ai-service job not finished — `suggestions: []`), `READY`, or `FAILED` (`ai-service` error/timeout — `suggestions: []`; per CLAUDE.md rule 2 this **never** blocks the document itself, which is already `READY` from step 1 regardless).
-- `source`: `"text_layer" | "bhashini_ocr" | "indicner"`, matching `RedactionFlag.source`.
+- `source`: `"text_layer" | "bhashini_ocr" | "indicner" | "gazetteer"`, matching `RedactionFlag.source`. `gazetteer` = a name already confirmed in another document of the same case (ADR-034).
+- Name hashes (`RedactionFlag.nameHashes`) are not returned by this endpoint; they never leave the server except to the AI service.
 - `entity_type`/`confidence_score`/`masked` map directly to `RedactionFlag` columns.
+
+---
+
+### AI service request (internal, web app → `apps/ai-service`)
+
+`POST {AI_SERVICE_URL}/v1/redaction-suggestions` with `document_version_id`, `grid_size`, `pages[]` (`page_index`, `width_px`, `height_px`, `png_base64`) and, when `GAZETTEER_KEY` is set, `gazetteer: { case_key, name_hashes[] }`: the case's derived key (base64, 32 bytes; `422` otherwise) and the keyed hashes already in its gazetteer. Each returned suggestion may carry `name_hashes[]`: keyed hashes of the names on that tile, stored as `RedactionFlag.nameHashes`. No name text crosses this boundary in either direction (ADR-034).
 
 ---
 
@@ -183,6 +190,7 @@ The confirming officer is taken from the session, never from the body.
 2. For each `page_index` touched by `confirmed_tile_indices`, draws an opaque black rectangle over each confirmed tile's pixel region (derived from `tile_index`/`grid_size`, same formula as endpoint 2) and re-exports the page as PNG — lossless, still PNG-only.
 3. Generates **fresh** salts for the new version (never the prior version's — a masked tile's original salt must not reach anyone holding the redacted version's proof, ADR-018), re-tiles and re-hashes the **redacted** pixels with them (v2, docs/03), and computes the new `R` and `C` entirely server-side. The redacted version is always v2, even when the prior version is legacy v1. Its salts are stored in the same transaction as the version.
 4. Sets `RedactionFlag.masked = true` for flags matching confirmed tiles; creates a flag with `source: "officer_manual"` for confirmed tiles that had no prior suggestion.
+   Then adds the name hashes on the confirmed tiles to the case gazetteer (`CaseGazetteerEntry`, ADR-034). Skipped when `GAZETTEER_KEY` is unset; a failure here never fails the confirm.
 5. Inserts a new `DocumentVersion` row: `version_no = previous + 1`, `previous_hash = <previous version's chain_hash>`, `chain_hash = H(0x06 ‖ prev ‖ C ‖ u32 version_no ‖ u64 timestamp_ms)` (docs/03 §v2; fixed-width fields). Including `version_no` and `timestamp` makes the chain resistant to reordering and gives external auditors a cross-check point against the audit log and the anchor timestamp. Legacy v1 versions keep their original chain hash, `SHA256(previous_hash + merkle_root + version_no + timestamp)` over the unseparated ASCII strings.
 
 **Response `201 Created`:**
@@ -367,7 +375,7 @@ Every write goes through `writeAuditLog` (`apps/web/src/lib/audit.ts`), which ne
 | `CREATE_CASE` | cases POST | `firRegisteredAt`, `offenceSections` |
 | `UPDATE_CASE_DEADLINE_FIELDS` | cases PATCH | `before` / `after`: `firRegisteredAt`, `offenceSections` |
 | `UPLOAD_DOCUMENT_VERSION` | upload | — |
-| `CONFIRM_REDACTIONS` / `CONFIRM_REDACTIONS_DETAIL` | confirm | detail: prior version, `redactedTileIndices`, `tilesByPage` |
+| `CONFIRM_REDACTIONS` / `CONFIRM_REDACTIONS_DETAIL` | confirm | detail: prior version, `redactedTileIndices`, `tilesByPage`, `gazetteerNamesAdded` (a count, never names or hashes) |
 | `ANCHOR_INITIATED` / `ANCHOR_COMPLETE` / `ANCHOR_FAILED` | `lib/anchor.ts` | `documentVersionId`; tx hash; `stage` + `error` |
 | `DOWNLOAD_CERTIFICATE` | certificate | `versionNo`, `anchored`, `blockRead` |
 | `DOWNLOAD_PROOF` | proof | `versionNo`, `anchorLogId`, `pageCount` |

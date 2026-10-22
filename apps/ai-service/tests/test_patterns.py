@@ -23,9 +23,15 @@ class TileMappingTest(unittest.TestCase):
         box = WordBox("x", left=1150, top=1600, width=30, height=10, conf=0.9)  # rows 1530-1614
         self.assertEqual(_span_to_grids(0, 1, "x", [box], 1190, 1684, 20), [(18, 19)])
 
-    def test_box_ending_on_a_tile_edge_stays_in_its_tile(self):
-        box = WordBox("x", left=0, top=0, width=60, height=85, conf=0.9)
+    def test_word_inside_a_tile_stays_in_it(self):
+        box = WordBox("x", left=20, top=30, width=20, height=20, conf=0.9)
         self.assertEqual(_span_to_grids(0, 1, "x", [box], 1190, 1684, 20), [(0, 0)])
+
+    def test_word_touching_a_tile_edge_also_takes_the_neighbour(self):
+        # Box padding (15% of the word's height) covers signs Tesseract's box
+        # leaves out: a word ending 1 px above row 1 also masks row 1.
+        box = WordBox("x", left=20, top=64, width=20, height=20, conf=0.9)
+        self.assertEqual(_span_to_grids(0, 1, "x", [box], 1190, 1684, 20), [(0, 0), (1, 0)])
 
 
 class PatternTest(unittest.TestCase):
