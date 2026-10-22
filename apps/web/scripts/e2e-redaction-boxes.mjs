@@ -13,7 +13,7 @@
 // AI_SERVICE_URL with the current code; the web app started with a
 // GAZETTEER_KEY; the Phase 6 test set (`pnpm eval:redaction`, or
 // `.venv/bin/python -m eval.generate` in apps/ai-service).
-// Each language uploads twice and confirms once: 3 Amoy anchors (~0.005 POL).
+// Each language uploads twice and confirms once: 3 Amoy anchors (~0.009 POL; ~0.028 for all three).
 //
 //   E2E_DOCS=en-04,hi-02,kn-03 E2E_FORM=clean node scripts/e2e-redaction-boxes.mjs
 import { chromium } from "playwright";
