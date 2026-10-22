@@ -1,0 +1,324 @@
+{
+ "holdout": {
+  "seed": 77,
+  "summary": {
+   "en|clean": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     6,
+     97
+    ],
+    "partial_recall": [
+     120,
+     120
+    ],
+    "precision": [
+     415,
+     523
+    ],
+    "recall": [
+     120,
+     120
+    ],
+    "title_footer_flagged": [
+     5,
+     280
+    ]
+   },
+   "en|scanned": {
+    "gazetteer_recall": [
+     39,
+     40
+    ],
+    "label_flagged": [
+     11,
+     106
+    ],
+    "partial_recall": [
+     120,
+     120
+    ],
+    "precision": [
+     457,
+     553
+    ],
+    "recall": [
+     119,
+     120
+    ],
+    "title_footer_flagged": [
+     3,
+     271
+    ]
+   },
+   "hi|clean": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     3,
+     64
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     268,
+     303
+    ],
+    "recall": [
+     110,
+     110
+    ],
+    "title_footer_flagged": [
+     0,
+     270
+    ]
+   },
+   "hi|scanned": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     5,
+     67
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     315,
+     374
+    ],
+    "recall": [
+     110,
+     110
+    ],
+    "title_footer_flagged": [
+     3,
+     252
+    ]
+   },
+   "kn|clean": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     11,
+     81
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     333,
+     430
+    ],
+    "recall": [
+     108,
+     110
+    ],
+    "title_footer_flagged": [
+     0,
+     310
+    ]
+   },
+   "kn|scanned": {
+    "gazetteer_recall": [
+     39,
+     40
+    ],
+    "label_flagged": [
+     29,
+     87
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     363,
+     507
+    ],
+    "recall": [
+     108,
+     110
+    ],
+    "title_footer_flagged": [
+     7,
+     260
+    ]
+   }
+  }
+ },
+ "tuning": {
+  "seed": 2026,
+  "summary": {
+   "en|clean": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     20,
+     115
+    ],
+    "partial_recall": [
+     120,
+     120
+    ],
+    "precision": [
+     405,
+     524
+    ],
+    "recall": [
+     117,
+     120
+    ],
+    "title_footer_flagged": [
+     0,
+     266
+    ]
+   },
+   "en|scanned": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     8,
+     95
+    ],
+    "partial_recall": [
+     120,
+     120
+    ],
+    "precision": [
+     459,
+     560
+    ],
+    "recall": [
+     116,
+     120
+    ],
+    "title_footer_flagged": [
+     3,
+     253
+    ]
+   },
+   "hi|clean": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     7,
+     82
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     283,
+     375
+    ],
+    "recall": [
+     110,
+     110
+    ],
+    "title_footer_flagged": [
+     0,
+     270
+    ]
+   },
+   "hi|scanned": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     2,
+     77
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     334,
+     400
+    ],
+    "recall": [
+     110,
+     110
+    ],
+    "title_footer_flagged": [
+     1,
+     236
+    ]
+   },
+   "kn|clean": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     17,
+     83
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     325,
+     484
+    ],
+    "recall": [
+     109,
+     110
+    ],
+    "title_footer_flagged": [
+     0,
+     310
+    ]
+   },
+   "kn|scanned": {
+    "gazetteer_recall": [
+     40,
+     40
+    ],
+    "label_flagged": [
+     19,
+     98
+    ],
+    "partial_recall": [
+     110,
+     110
+    ],
+    "precision": [
+     369,
+     503
+    ],
+    "recall": [
+     109,
+     110
+    ],
+    "title_footer_flagged": [
+     2,
+     281
+    ]
+   }
+  }
+ }
+}

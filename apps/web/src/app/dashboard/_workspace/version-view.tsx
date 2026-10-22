@@ -84,9 +84,12 @@ const VERSION_CSS = `
 .wsv-tile { position: absolute; border: 2px solid var(--warn); background: rgba(251,191,36,0.14); border-radius: 2px; padding: 0; cursor: pointer; }
 .wsv-tile:hover { background: rgba(251,191,36,0.26); }
 .wsv-tile:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.wsv-tile-high { border-color: var(--ok); background: rgba(52,211,153,0.14); }
+.wsv-tile-check { border-style: dashed; }
 .wsv-tile-selected { border-color: var(--brand); background: rgba(0,0,0,0.8); }
 .wsv-tile-selected:hover { background: rgba(0,0,0,0.88); }
 .wsv-tile-static { cursor: default; }
+.wsv-bands { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .wsv-status { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
 .wsv-status:first-of-type { border-top: 0; }
 .wsv-status-icon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; flex: none; }
@@ -109,6 +112,14 @@ const VERSION_CSS = `
 .wsv-confirm { margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--danger-soft); border: 1px solid var(--danger-line); }
 .wsv-confirm p { margin: 0 0 12px; font-size: 14px; color: var(--paper); line-height: 1.5; }
 `;
+
+/**
+ * Display bands for suggestions (docs/08): green = high confidence, amber =
+ * check it. Bands only colour the review; nothing is pre-selected either way
+ * (a cutoff at 0.8 or above would hide ~10% of Hindi and Kannada identifiers).
+ */
+const CONFIDENCE_GREEN = 0.9;
+const isHigh = (score: number) => score >= CONFIDENCE_GREEN;
 
 function humanEntity(entity: string): string {
   return entity.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -405,11 +416,13 @@ export function WorkspaceVersionView() {
                               height: `${(Math.min(tileH, page.height - s.row * tileH) / page.height) * 100}%`,
                             };
                             const isSel = selected.has(s.tile_index);
-                            const label = `${humanEntity(s.entity_type)} suggestion, row ${s.row + 1}, column ${s.col + 1}${isSel ? ", selected for redaction" : ""}`;
+                            const band = isHigh(s.confidence_score) ? "high confidence" : "check";
+                            const label = `${humanEntity(s.entity_type)} suggestion, ${band}, row ${s.row + 1}, column ${s.col + 1}${isSel ? ", selected for redaction" : ""}`;
+                            const bandClass = isHigh(s.confidence_score) ? " wsv-tile-high" : " wsv-tile-check";
                             return reviewable ? (
-                              <button key={s.id} type="button" className={`wsv-tile${isSel ? " wsv-tile-selected" : ""}`} style={style} aria-label={label} aria-pressed={isSel} onClick={() => toggle(s.tile_index)} />
+                              <button key={s.id} type="button" className={`wsv-tile${bandClass}${isSel ? " wsv-tile-selected" : ""}`} style={style} aria-label={label} aria-pressed={isSel} onClick={() => toggle(s.tile_index)} />
                             ) : (
-                              <span key={s.id} className="wsv-tile wsv-tile-static" style={style} title={label} />
+                              <span key={s.id} className={`wsv-tile wsv-tile-static${bandClass}`} style={style} title={label} />
                             );
                           })}
                     </div>
@@ -519,6 +532,7 @@ export function WorkspaceVersionView() {
                         const lo = Math.min(...scores);
                         const hi = Math.max(...scores);
                         const sources = Array.from(new Set(g.items.map((x) => x.source)));
+                        const high = g.items.filter((x) => isHigh(x.confidence_score)).length;
                         const id = `sugg-${g.entity}`;
                         return (
                           <li key={g.entity} className="wsv-sugg">
@@ -538,6 +552,10 @@ export function WorkspaceVersionView() {
                               </span>
                               <span>
                                 Page{pages.length === 1 ? "" : "s"} {pages.join(", ")} · confidence {lo === hi ? `${lo}%` : `${lo}–${hi}%`}
+                              </span>
+                              <span className="wsv-bands">
+                                {high > 0 && <span className="ws-chip ws-chip-ok">{high} high confidence</span>}
+                                {g.items.length - high > 0 && <span className="ws-chip ws-chip-warn">{g.items.length - high} check</span>}
                               </span>
                               <span>
                                 Source <span className="ws-mono">{sources.join(", ")}</span>

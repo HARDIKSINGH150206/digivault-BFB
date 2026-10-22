@@ -126,11 +126,11 @@ def build_document(lang: str, rng: random.Random, number: int) -> tuple[list[lis
     victim_phone, accused_phone = _phone(rng), _phone(rng)
 
     def field_line(label: str, value: str, kind: str | None) -> list[Span]:
-        return [Span(label + " "), Span(value, kind)]
+        return [Span(label + " ", "label"), Span(value, kind)]
 
     lines = [
-        [Span(TITLE[lang], None)],
-        [Span(L["fir"] + " "), Span(f"{number:04d}/2026", "ignore"), Span("    " + L["date"] + " "), Span(date, "ignore")],
+        [Span(TITLE[lang], "title")],
+        [Span(L["fir"] + " ", "label"), Span(f"{number:04d}/2026", "ignore"), Span("    " + L["date"] + " ", "label"), Span(date, "ignore")],
         field_line(L["station"], station, "ignore"),
         [],
         field_line(L["complainant"], victim, "name"),
@@ -154,7 +154,7 @@ def build_followup(lang: str, people: dict) -> list[list[Span]]:
     """A later statement in the same case: the same people, never labelled."""
     values = {"victim": (people["victim"], "name"), "accused": (people["accused"], "name"),
               "witness": (people["witness"], "name"), "date": (people["date"], "ignore")}
-    return [[Span(TITLE[lang])], []] + [_fill(t, values) for t in FOLLOWUP[lang]]
+    return [[Span(TITLE[lang], "title")], []] + [_fill(t, values) for t in FOLLOWUP[lang]]
 
 
 # --- Rendering --------------------------------------------------------------
@@ -198,11 +198,15 @@ def _word_ink_boxes(x: float, y: float, text: str, font) -> list[tuple[int, int,
     return boxes
 
 
-def render(lines: list[list[Span]]) -> tuple[Image.Image, list[Entity], list[Entity]]:
+FORM_KINDS = ("title", "label", "footer")  # printed form text: never an identifier, never worth masking
+
+
+def render(lines: list[list[Span]]) -> tuple[Image.Image, list[Entity], list[Entity], list[Entity]]:
     img = Image.new("RGB", (PAGE_W, PAGE_H), "white")
     draw = ImageDraw.Draw(img)
     gold: list[Entity] = []
     ignore: list[Entity] = []
+    form: list[Entity] = []
     y = MARGIN
     for i, line in enumerate(lines):
         px = TITLE_PX if i == 0 else BODY_PX
@@ -216,12 +220,14 @@ def render(lines: list[list[Span]]) -> tuple[Image.Image, list[Entity], list[Ent
                 draw.text((x, y), text, font=font, fill=(20, 20, 20))
                 x += font.getlength(text)
             if span.label and boxes:
-                (gold if span.label in GOLD_TYPES else ignore).append(Entity(span.label, span.text, boxes))
+                bucket = gold if span.label in GOLD_TYPES else form if span.label in FORM_KINDS else ignore
+                bucket.append(Entity(span.label, span.text, boxes))
         if x > PAGE_W - MARGIN / 2:
             raise ValueError(f"line {i} overflows the page ({x:.0f}px): {''.join(s.text for s in line)}")
         y += px * LINE_GAP if line else BODY_PX
+    form.append(Entity("footer", FOOTER, _word_ink_boxes(MARGIN, PAGE_H - MARGIN, FOOTER, _font("latin", FOOTER_PX))))
     draw.text((MARGIN, PAGE_H - MARGIN), FOOTER, font=_font("latin", FOOTER_PX), fill=(90, 90, 90))
-    return img, gold, ignore
+    return img, gold, ignore, form
 
 
 # --- Scan simulation --------------------------------------------------------
@@ -295,23 +301,24 @@ def main() -> None:
     (out_dir / "pages").mkdir(parents=True, exist_ok=True)
     pages, followups = [], []
 
-    def save(kind: str, doc_id: str, lang: str, form: str, image, g, ig, extra, into: list) -> None:
+    def save(kind: str, doc_id: str, lang: str, form: str, image, g, ig, fm, extra, into: list) -> None:
         path = out_dir / "pages" / f"{doc_id}-{kind}{form}.png"
         image.save(path, "PNG")
         into.append({"doc_id": doc_id, "lang": lang, "form": form, "path": str(path.relative_to(out_dir)),
                      "width": PAGE_W, "height": PAGE_H, "grid": GRID, **extra,
-                     "entities": [_entity_json(e) for e in g], "ignore": [_entity_json(e) for e in ig]})
+                     "entities": [_entity_json(e) for e in g], "ignore": [_entity_json(e) for e in ig],
+                     "form_text": [_entity_json(e) for e in fm]})
 
     for lang in ("en", "hi", "kn"):
         for n in range(1, args.docs_per_language + 1):
             doc_id = f"{lang}-{n:02d}"
             lines, people = build_document(lang, rng, n)
             for kind, page_lines, page_rng, into in (("", lines, rng, pages), ("followup-", build_followup(lang, people), followup_rng, followups)):
-                img, gold, ignore = render(page_lines)
-                scanned, s_both, meta = scan(img, gold + ignore, page_rng)
-                s_gold, s_ignore = s_both[: len(gold)], s_both[len(gold):]
-                save(kind, doc_id, lang, "clean", img, gold, ignore, {}, into)
-                save(kind, doc_id, lang, "scanned", scanned, s_gold, s_ignore, meta, into)
+                img, gold, ignore, form = render(page_lines)
+                scanned, s_all, meta = scan(img, gold + ignore + form, page_rng)
+                s_gold, s_ignore, s_form = s_all[: len(gold)], s_all[len(gold):len(gold) + len(ignore)], s_all[len(gold) + len(ignore):]
+                save(kind, doc_id, lang, "clean", img, gold, ignore, form, {}, into)
+                save(kind, doc_id, lang, "scanned", scanned, s_gold, s_ignore, s_form, meta, into)
     manifest = {"seed": args.seed, "font": args.font, "docs_per_language": args.docs_per_language,
                 "pages": pages, "followups": followups}
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))

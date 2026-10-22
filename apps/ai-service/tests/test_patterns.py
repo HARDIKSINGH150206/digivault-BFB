@@ -36,7 +36,7 @@ class TileMappingTest(unittest.TestCase):
 
 class PatternTest(unittest.TestCase):
     def test_phone_formats(self):
-        for phone in ("9876543210", "98765 43210", "+91 98765 43210", "+91-98765-43210", "098765 43210"):
+        for phone in ("9876543210", "98765 43210", "+91 98765 43210", "+91-98765-43210", "098765 43210", "84613 51 619"):
             self.assertIn("phone", types(f"Mobile: {phone}"), phone)
 
     def test_english_name_labels(self):
@@ -93,3 +93,47 @@ class FlattenTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VisualOrderTest(unittest.TestCase):
+    def test_label_column_and_value_column_are_rejoined(self):
+        from app.real_suggestions import _visual_order
+        # Tesseract order: the label column, then the value column.
+        boxes = [WordBox("Witness:", 80, 574, 90, 20, 0.9), WordBox("Address:", 80, 620, 90, 20, 0.9),
+                 WordBox("Vikas", 180, 567, 60, 24, 0.9), WordBox("Chauhan", 250, 568, 80, 24, 0.9),
+                 WordBox("Lucknow", 180, 618, 90, 22, 0.9)]
+        text, ordered = _visual_order(boxes)
+        self.assertEqual(text, "Witness: Vikas Chauhan\nAddress: Lucknow")
+        self.assertIn("Vikas Chauhan", names(text))
+        self.assertEqual([b.text for b in ordered], ["Witness:", "Vikas", "Chauhan", "Address:", "Lucknow"])
+
+
+class LabelNotMaskedTest(unittest.TestCase):
+    def test_age_and_case_number_capture_the_value_only(self):
+        for text, value in (("FIR No. 0001/2026", "0001/2026"), ("Age: 34", "34"), ("आयु: 34", "34"), ("ವಯಸ್ಸು: 34", "34")):
+            caps = [m.group(m.lastindex or 0) for etype, pat, _ in _compiled_patterns if etype in ("age", "case_number")
+                    for m in pat.finditer(text)]
+            self.assertIn(value, [c.strip() for c in caps], text)
+            self.assertFalse(any(len(c.strip()) > len(value) for c in caps), (text, caps))
+
+
+class NerBlankingTest(unittest.TestCase):
+    def test_form_text_and_indic_script_are_blanked_offsets_kept(self):
+        from app.form_text import ner_input
+        text = "FIRST INFORMATION REPORT\nName of complainant: Sunita Devi\n17/07/2026 ರಂದು ಹೇಳಿಕೆ\nfooter line"
+        lines, pos = [], 0
+        for i, line in enumerate(text.split("\n")):
+            top = [50, 300, 400, 1640][i]
+            lines.append((pos, pos + len(line), top, top + 20))
+            pos += len(line) + 1
+        out = ner_input(text, lines, 1684)
+        self.assertEqual(len(out), len(text))
+        self.assertEqual([l.strip() for l in out.split("\n")], ["", "Sunita Devi", "17/07/2026", ""])
+
+
+class KannadaRoleSuffixTest(unittest.TestCase):
+    def test_complainant_who_is_form_propagates_the_name(self):
+        text = "ದೂರುದಾರರಾದ ಕಾವ್ಯ ರೆಡ್ಡಿ ಅವರು ಬಂದರು\nಕಾವ್ಯ ರೆಡ್ಡಿ ಅವರು ಮನವಿ ಮಾಡಿದರು"
+        self.assertTrue(any(n.startswith("ಕಾವ್ಯ ರೆಡ್ಡಿ") for n in names(text)), names(text))
+        hits = _propagate_names(text, [], 1000, 1000, 20, "text_layer")
+        self.assertGreaterEqual(len({(d.row, d.col) for d in hits}), 2)
