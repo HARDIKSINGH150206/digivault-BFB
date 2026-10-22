@@ -126,3 +126,86 @@ NARRATIVE = {
 }
 
 FOOTER = "Synthetic test record for DigiVault redaction measurement - all details are fictional"
+
+# Follow-up statement in the same case: the same people, never with a role
+# label in front of them. Only the case gazetteer can know they are names.
+FOLLOWUP = {
+    "en": [
+        "Statement recorded on {date}.",
+        "{victim} came to the station again with {witness}.",
+        "She identified {accused} from photographs.",
+        "{accused} was not found at his residence.",
+    ],
+    "hi": [
+        "दिनांक {date} को बयान दर्ज किया गया।",
+        "{victim} अपने परिचित {witness} के साथ थाने आईं।",
+        "उन्होंने फोटो से {accused} की पहचान की।",
+        "{accused} अपने घर पर नहीं मिला।",
+    ],
+    "kn": [
+        "{date} ರಂದು ಹೇಳಿಕೆ ದಾಖಲಿಸಲಾಗಿದೆ.",
+        "{victim} ಅವರು {witness} ಜೊತೆ ಬಂದರು.",
+        "ಅವರು ಫೋಟೋದಿಂದ {accused} ಅವರನ್ನು ಗುರುತಿಸಿದರು.",
+        "{accused} ಮನೆಯಲ್ಲಿ ಸಿಗಲಿಲ್ಲ.",
+    ],
+}
+
+# The same person written in Latin, Devanagari and Kannada, spelled the way
+# each is commonly written (गौड़ा, हेगड़े), not the way that suits the
+# normaliser. None = not commonly written in that script. Used to measure
+# how often the gazetteer key agrees across scripts (docs/08).
+PARALLEL_NAMES = [
+    ("Kavita Singh", "कविता सिंह", "ಕವಿತಾ ಸಿಂಗ್"),
+    ("Sunita Devi", "सुनीता देवी", "ಸುನೀತಾ ದೇವಿ"),
+    ("Pooja Sharma", "पूजा शर्मा", "ಪೂಜಾ ಶರ್ಮಾ"),
+    ("Anjali Verma", "अंजलि वर्मा", "ಅಂಜಲಿ ವರ್ಮಾ"),
+    ("Rekha Kumari", "रेखा कुमारी", "ರೇಖಾ ಕುಮಾರಿ"),
+    ("Meena Kumari", "मीना कुमारी", "ಮೀನಾ ಕುಮಾರಿ"),
+    ("Priya Yadav", "प्रिया यादव", "ಪ್ರಿಯಾ ಯಾದವ್"),
+    ("Neha Gupta", "नेहा गुप्ता", "ನೇಹಾ ಗುಪ್ತಾ"),
+    ("Seema Tiwari", "सीमा तिवारी", "ಸೀಮಾ ತಿವಾರಿ"),
+    ("Rubina Khan", "रुबीना खान", "ರುಬೀನಾ ಖಾನ್"),
+    ("Lakshmi Devi", "लक्ष्मी देवी", "ಲಕ್ಷ್ಮಿ ದೇವಿ"),
+    ("Kavya Reddy", "काव्या रेड्डी", "ಕಾವ್ಯ ರೆಡ್ಡಿ"),
+    ("Suma Gowda", "सुमा गौड़ा", "ಸುಮಾ ಗೌಡ"),
+    ("Anitha Shetty", "अनीता शेट्टी", "ಅನಿತಾ ಶೆಟ್ಟಿ"),
+    ("Ramesh Kumar", "रमेश कुमार", "ರಮೇಶ್ ಕುಮಾರ್"),
+    ("Suresh Yadav", "सुरेश यादव", "ಸುರೇಶ್ ಯಾದವ್"),
+    ("Vikas Chauhan", "विकास चौहान", "ವಿಕಾಸ್ ಚೌಹಾಣ್"),
+    ("Manoj Tiwari", "मनोज तिवारी", "ಮನೋಜ್ ತಿವಾರಿ"),
+    ("Ajay Mishra", "अजय मिश्रा", "ಅಜಯ್ ಮಿಶ್ರಾ"),
+    ("Rajesh Pandey", "राजेश पांडे", "ರಾಜೇಶ್ ಪಾಂಡೆ"),
+    ("Imran Ali", "इमरान अली", "ಇಮ್ರಾನ್ ಅಲಿ"),
+    ("Deepak Joshi", "दीपक जोशी", "ದೀಪಕ್ ಜೋಶಿ"),
+    ("Sanjay Gupta", "संजय गुप्ता", "ಸಂಜಯ್ ಗುಪ್ತಾ"),
+    ("Rahul Verma", "राहुल वर्मा", "ರಾಹುಲ್ ವರ್ಮಾ"),
+    ("Mohammed Salim", "मोहम्मद सलीम", "ಮೊಹಮ್ಮದ್ ಸಲೀಂ"),
+    ("Prakash Hegde", "प्रकाश हेगड़े", "ಪ್ರಕಾಶ್ ಹೆಗಡೆ"),
+    ("Farah Khan", "फराह खान", "ಫರಾ ಖಾನ್"),
+    ("Shalini Rao", "शालिनी राव", "ಶಾಲಿನಿ ರಾವ್"),
+]
+
+# Held-out list: written after the normalisation rules were final and
+# measured once; not used to change them.
+PARALLEL_NAMES_HOLDOUT = [
+    ("Geeta Patel", "गीता पटेल", "ಗೀತಾ ಪಟೇಲ್"),
+    ("Asha Rani", "आशा रानी", "ಆಶಾ ರಾಣಿ"),
+    ("Nisha Agarwal", "निशा अग्रवाल", "ನಿಶಾ ಅಗರ್ವಾಲ್"),
+    ("Sarita Mehta", "सरिता मेहता", "ಸರಿತಾ ಮೆಹ್ತಾ"),
+    ("Divya Nair", "दिव्या नायर", "ದಿವ್ಯಾ ನಾಯರ್"),
+    ("Shabana Begum", "शबाना बेगम", "ಶಬಾನಾ ಬೇಗಂ"),
+    ("Usha Pillai", "उषा पिल्लै", "ಉಷಾ ಪಿಳ್ಳೈ"),
+    ("Radha Krishnan", "राधा कृष्णन", "ರಾಧಾ ಕೃಷ್ಣನ್"),
+    ("Jyoti Kumari", "ज्योति कुमारी", "ಜ್ಯೋತಿ ಕುಮಾರಿ"),
+    ("Bhavana Rao", "भावना राव", "ಭಾವನಾ ರಾವ್"),
+    ("Arun Kumar", "अरुण कुमार", "ಅರುಣ್ ಕುಮಾರ್"),
+    ("Naveen Shetty", "नवीन शेट्टी", "ನವೀನ್ ಶೆಟ್ಟಿ"),
+    ("Sunil Dubey", "सुनील दुबे", "ಸುನೀಲ್ ದುಬೆ"),
+    ("Ravi Teja", "रवि तेजा", "ರವಿ ತೇಜ"),
+    ("Abdul Rahman", "अब्दुल रहमान", "ಅಬ್ದುಲ್ ರೆಹಮಾನ್"),
+    ("Harish Bhat", "हरीश भट", "ಹರೀಶ್ ಭಟ್"),
+    ("Gopal Krishna", "गोपाल कृष्ण", "ಗೋಪಾಲ ಕೃಷ್ಣ"),
+    ("Kiran Kulkarni", "किरण कुलकर्णी", "ಕಿರಣ್ ಕುಲಕರ್ಣಿ"),
+    ("Venkatesh Murthy", "वेंकटेश मूर्ति", "ವೆಂಕಟೇಶ್ ಮೂರ್ತಿ"),
+    ("Santosh Patil", "संतोष पाटिल", "ಸಂತೋಷ್ ಪಾಟೀಲ್"),
+]

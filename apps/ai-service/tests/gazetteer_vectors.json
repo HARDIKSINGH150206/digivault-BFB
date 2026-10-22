@@ -1,0 +1,48 @@
+{
+ "comment": "ADR-034 gazetteer vectors. case_key = HMAC-SHA256(master_key, 'digivault/gazetteer/v1/case|' + case_id) (web app, lib/gazetteer.ts); name_hash = HMAC-SHA256(case_key, 'digivault/gazetteer/v1/name|' + name_key) (ai-service, app/gazetteer.py). Do not regenerate unless the scheme deliberately changes.",
+ "master_key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+ "cases": [
+  {
+   "case_id": "case-A",
+   "case_key_b64": "6a1+wWe5DghU4snJ4McBZjbBcQMnO0vkMzFHoQHqAWc="
+  },
+  {
+   "case_id": "case-B",
+   "case_key_b64": "qNLqQEsIEkzeZ3WULvSWS+2UZ7R44dcFNcohnAezIpY="
+  }
+ ],
+ "names": [
+  {
+   "text": "Kavita Singh",
+   "name_key": "kvita sin",
+   "name_hash": {
+    "case-A": "00712cef428d5544cfc39655acba859bb16344cc6b4676e7f47c23dd60b3ea31",
+    "case-B": "42eeedd112e827144b04e7385684822ba2cd6065f1106e2978645337f7d048d4"
+   }
+  },
+  {
+   "text": "कविता सिंह",
+   "name_key": "kvita sin",
+   "name_hash": {
+    "case-A": "00712cef428d5544cfc39655acba859bb16344cc6b4676e7f47c23dd60b3ea31",
+    "case-B": "42eeedd112e827144b04e7385684822ba2cd6065f1106e2978645337f7d048d4"
+   }
+  },
+  {
+   "text": "ಕವಿತಾ ಸಿಂಗ್",
+   "name_key": "kvita sin",
+   "name_hash": {
+    "case-A": "00712cef428d5544cfc39655acba859bb16344cc6b4676e7f47c23dd60b3ea31",
+    "case-B": "42eeedd112e827144b04e7385684822ba2cd6065f1106e2978645337f7d048d4"
+   }
+  },
+  {
+   "text": "Mahesh Nayak",
+   "name_key": "mhs nyk",
+   "name_hash": {
+    "case-A": "f6dc1f74d3cd18f1d7b47cb7321f472a33f7db70da92bc00badcb60bcb88737c",
+    "case-B": "6c021ef7cedbee2976d2fa01fe42f68c3316665c8e07aa20281900af1b1d2a0c"
+   }
+  }
+ ]
+}

@@ -15,9 +15,11 @@ export async function persistSuggestionsAsFlags(documentVersionId: string, sugge
       confidenceScore: s.confidenceScore,
       masked: false,
       source: s.source,
+      nameHashes: s.nameHashes,
     }))
-    .filter((f): f is { tileId: string; entityType: string; confidenceScore: number; masked: boolean; source: string } =>
-      Boolean(f.tileId)
+    .filter(
+      (f): f is { tileId: string; entityType: string; confidenceScore: number; masked: boolean; source: string; nameHashes: string[] } =>
+        Boolean(f.tileId)
     );
 
   if (data.length === 0) return 0;

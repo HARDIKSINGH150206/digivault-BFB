@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Optional
 
+from .gazetteer import name_hash
 from .verhoeff import is_plausible_aadhaar
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,8 @@ def _ocr_page(png_bytes: bytes) -> tuple[str, list[WordBox]]:
     full_text = "\n".join(" ".join(words) for words in lines.values())
     return full_text, boxes
 
+BOX_PAD = 0.15  # of the word's height, on every side
+
 def _span_to_grids(
     char_start: int,
     char_end: int,
@@ -248,11 +251,14 @@ def _span_to_grids(
     for box in word_boxes:
         word_end = offset + len(box.text)
         if offset < char_end and word_end > char_start:
-            # Every tile the box overlaps — left edge to right edge, top to bottom
-            col_lo = box.left // tile_w
-            col_hi = (box.left + max(box.width, 1) - 1) // tile_w
-            row_lo = box.top // tile_h
-            row_hi = (box.top + max(box.height, 1) - 1) // tile_h
+            # Every tile the box overlaps, padded: Tesseract's box can stop
+            # short of stacked Kannada/Devanagari signs and descenders, and a
+            # sliver of a name in an unmasked tile still leaks (Phase 6).
+            pad = max(2, int(box.height * BOX_PAD))
+            col_lo = (box.left - pad) // tile_w
+            col_hi = (box.left + max(box.width, 1) - 1 + pad) // tile_w
+            row_lo = (box.top - pad) // tile_h
+            row_hi = (box.top + max(box.height, 1) - 1 + pad) // tile_h
             col_lo = max(0, min(col_lo, grid_size - 1))
             col_hi = max(0, min(col_hi, grid_size - 1))
             row_lo = max(0, min(row_lo, grid_size - 1))
@@ -276,8 +282,16 @@ class Detection:
     source: str
     row: int
     col: int
+    # Keyed hashes of the names this tile covers (ADR-034); only for names,
+    # and only when the request carried a case key. A tile is taller than a
+    # text line, so it can cover two names.
+    name_hashes: tuple[str, ...] = ()
 
-def _run_spacy(text, word_boxes, page_width, page_height, grid_size, source):
+def _hash_name(case_key: Optional[bytes], etype: str, text: str) -> tuple[str, ...]:
+    h = name_hash(case_key, text) if case_key and etype == "victim_name" else None
+    return (h,) if h else ()
+
+def _run_spacy(text, word_boxes, page_width, page_height, grid_size, source, case_key=None):
     if not text.strip():
         return []
     nlp = _get_nlp()
@@ -290,8 +304,9 @@ def _run_spacy(text, word_boxes, page_width, page_height, grid_size, source):
         scores = [t.prob for t in ent if t.prob != 0.0]
         raw_conf = (sum(scores) / len(scores)) if scores else 0.70
         confidence = max(0.55, min(0.95, abs(raw_conf) / 15.0 + 0.60))
+        nh = _hash_name(case_key, etype, ent.text)
         for grid in _span_to_grids(ent.start_char, ent.end_char, text, word_boxes, page_width, page_height, grid_size):
-            detections.append(Detection(entity_type=etype, confidence=round(confidence, 3), source=source, row=grid[0], col=grid[1]))
+            detections.append(Detection(entity_type=etype, confidence=round(confidence, 3), source=source, row=grid[0], col=grid[1], name_hashes=nh))
     return detections
 
 # Aadhaar matches are scored by checksum (ADR-033): a valid one is near
@@ -299,7 +314,7 @@ def _run_spacy(text, word_boxes, page_width, page_height, grid_size, source):
 AADHAAR_VALID_CONF = 0.98
 AADHAAR_INVALID_CONF = 0.60
 
-def _run_regex(text, word_boxes, page_width, page_height, grid_size, source):
+def _run_regex(text, word_boxes, page_width, page_height, grid_size, source, case_key=None):
     if not text.strip():
         return []
     detections = []
@@ -310,13 +325,14 @@ def _run_regex(text, word_boxes, page_width, page_height, grid_size, source):
             conf = base_conf
             if etype == "aadhaar":
                 conf = AADHAAR_VALID_CONF if is_plausible_aadhaar(text[start:end]) else AADHAAR_INVALID_CONF
+            nh = _hash_name(case_key, etype, text[start:end])
             for grid in _span_to_grids(start, end, text, word_boxes, page_width, page_height, grid_size):
-                detections.append(Detection(entity_type=etype, confidence=round(conf, 3), source=source, row=grid[0], col=grid[1]))
+                detections.append(Detection(entity_type=etype, confidence=round(conf, 3), source=source, row=grid[0], col=grid[1], name_hashes=nh))
     return detections
 
 PROPAGATED_NAME_CONF = 0.85
 
-def _propagate_names(text, word_boxes, page_width, page_height, grid_size, source):
+def _propagate_names(text, word_boxes, page_width, page_height, grid_size, source, case_key=None):
     """A name found once by a labelled pattern is flagged wherever else it
     appears on the page: FIR narratives repeat the victim's name with no
     label in front of it (Phase 6 measurement)."""
@@ -335,9 +351,35 @@ def _propagate_names(text, word_boxes, page_width, page_height, grid_size, sourc
     detections = []
     for tokens in names:
         needle = re.compile(r"‌?\s+".join(re.escape(t) for t in tokens) + "‌?")
+        nh = _hash_name(case_key, "victim_name", " ".join(tokens))
         for m in needle.finditer(text):
             for grid in _span_to_grids(m.start(), m.end(), text, word_boxes, page_width, page_height, grid_size):
-                detections.append(Detection(entity_type="victim_name", confidence=PROPAGATED_NAME_CONF, source=source, row=grid[0], col=grid[1]))
+                detections.append(Detection(entity_type="victim_name", confidence=PROPAGATED_NAME_CONF, source=source, row=grid[0], col=grid[1], name_hashes=nh))
+    return detections
+
+GAZETTEER_CONF = 0.95
+
+def _match_gazetteer(text, word_boxes, page_width, page_height, grid_size, case_key, known):
+    """Flags every one- and two-word run whose keyed hash is in the case
+    gazetteer: names an officer already confirmed in another document of the
+    case, wherever and however they appear here (ADR-034)."""
+    if not case_key or not known or not word_boxes:
+        return []
+    starts, offset = [], 0
+    for box in word_boxes:  # same offsets _span_to_grids assumes
+        starts.append(offset)
+        offset += len(box.text) + 1
+    detections = []
+    for i in range(len(word_boxes)):
+        for n in (2, 1):
+            if i + n > len(word_boxes):
+                continue
+            words = " ".join(b.text for b in word_boxes[i:i + n])
+            nh = name_hash(case_key, words)
+            if nh in known:
+                end = starts[i + n - 1] + len(word_boxes[i + n - 1].text)
+                for grid in _span_to_grids(starts[i], end, text, word_boxes, page_width, page_height, grid_size):
+                    detections.append(Detection(entity_type="victim_name", confidence=GAZETTEER_CONF, source="gazetteer", row=grid[0], col=grid[1], name_hashes=(nh,)))
     return detections
 
 # Priority order — more specific wins over generic
@@ -360,31 +402,41 @@ def _deduplicate(detections: list[Detection]) -> list[Detection]:
             existing = best[key]
             d_pri = _ETYPE_PRIORITY.get(d.entity_type, 0)
             e_pri = _ETYPE_PRIORITY.get(existing.entity_type, 0)
-            if d_pri > e_pri or (d_pri == e_pri and d.confidence > existing.confidence):
-                best[key] = d
+            winner, loser = (d, existing) if d_pri > e_pri or (d_pri == e_pri and d.confidence > existing.confidence) else (existing, d)
+            # The tile keeps every name hash found on it, even when a phone
+            # number or another name wins its entity type, so confirming it
+            # adds all of them to the case gazetteer.
+            merged = tuple(sorted(set(winner.name_hashes) | set(loser.name_hashes)))
+            if merged != winner.name_hashes:
+                winner = Detection(**{**winner.__dict__, "name_hashes": merged})
+            best[key] = winner
     return list(best.values())
 
-from .schemas import PageInput, Suggestion
+from .schemas import GazetteerInput, PageInput, Suggestion
 
-def _page_suggestions(grid_size: int, page: PageInput) -> list[Suggestion]:
+def _page_suggestions(grid_size: int, page: PageInput, case_key: Optional[bytes] = None, known: frozenset = frozenset()) -> list[Suggestion]:
     try:
         png_bytes = base64.b64decode(page.png_base64)
         full_text, word_boxes = _ocr_page(png_bytes)
         source = "text_layer"   # tesseract OCR result, reusing allowed schema value
-        spacy_hits = _run_spacy(full_text, word_boxes, page.width_px, page.height_px, grid_size, source)
-        regex_hits = _run_regex(full_text, word_boxes, page.width_px, page.height_px, grid_size, "text_layer")
-        name_hits = _propagate_names(full_text, word_boxes, page.width_px, page.height_px, grid_size, "text_layer")
+        args = (full_text, word_boxes, page.width_px, page.height_px, grid_size)
+        hits = (_run_spacy(*args, source, case_key) + _run_regex(*args, "text_layer", case_key)
+                + _propagate_names(*args, "text_layer", case_key) + _match_gazetteer(*args, case_key, known))
         return [
-            Suggestion(page_index=page.page_index, row=d.row, col=d.col, entity_type=d.entity_type, confidence_score=d.confidence, source=d.source)
-            for d in _deduplicate(spacy_hits + regex_hits + name_hits)
+            Suggestion(page_index=page.page_index, row=d.row, col=d.col, entity_type=d.entity_type,
+                       confidence_score=d.confidence, source=d.source, name_hashes=list(d.name_hashes))
+            for d in _deduplicate(hits)
         ]
     except Exception as exc:
         logger.error("page %d failed: %s", page.page_index, exc, exc_info=True)
         return []
 
-def generate_suggestions(document_version_id: str, grid_size: int, pages: list[PageInput]) -> list[Suggestion]:
+def generate_suggestions(document_version_id: str, grid_size: int, pages: list[PageInput],
+                         gazetteer: Optional[GazetteerInput] = None) -> list[Suggestion]:
     if not pages:
         return []
+    case_key = base64.b64decode(gazetteer.case_key) if gazetteer else None
+    known = frozenset(gazetteer.name_hashes) if gazetteer else frozenset()
     with ThreadPoolExecutor(max_workers=min(len(pages), _MAX_OCR_WORKERS)) as pool:
-        per_page = list(pool.map(lambda page: _page_suggestions(grid_size, page), pages))
+        per_page = list(pool.map(lambda page: _page_suggestions(grid_size, page, case_key, known), pages))
     return [s for page_suggestions in per_page for s in page_suggestions]

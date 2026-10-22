@@ -21,31 +21,86 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import hmac
 import json
 import time
 from collections import defaultdict
 from pathlib import Path
 
+from app.gazetteer import name_key
 from app.real_suggestions import generate_suggestions
-from app.schemas import PageInput
+from app.schemas import GazetteerInput, PageInput, Suggestion
 
 from . import generate
+from .fixtures import PARALLEL_NAMES, PARALLEL_NAMES_HOLDOUT
 from .generate import GOLD_TYPES
 
 LANG_NAMES = {"en": "English", "hi": "Hindi", "kn": "Kannada"}
 CUTOFFS = (0.0, 0.7, 0.8, 0.9)
 
 
-def _flags(page: dict, root: Path) -> dict[int, float]:
-    """tile index -> highest confidence the engine gave it."""
+def _suggest(page: dict, root: Path, gazetteer: GazetteerInput | None = None) -> list[Suggestion]:
     png = (root / page["path"]).read_bytes()
     req = PageInput(page_index=0, width_px=page["width"], height_px=page["height"],
                     png_base64=base64.b64encode(png).decode())
+    return generate_suggestions("eval", page["grid"], [req], gazetteer)
+
+
+def _flags(page: dict, root: Path) -> dict[int, float]:
+    """tile index -> highest confidence the engine gave it."""
     out: dict[int, float] = {}
-    for s in generate_suggestions("eval", page["grid"], [req]):
+    for s in _suggest(page, root):
         t = s.row * page["grid"] + s.col
         out[t] = max(out.get(t, 0.0), s.confidence_score)
     return out
+
+
+def _case_key(doc_id: str) -> bytes:
+    """Stands in for the web app's per-case key (ADR-034): one case per document."""
+    return hmac.new(b"eval-master-key", b"digivault/gazetteer/v1/case|" + doc_id.encode(), hashlib.sha256).digest()
+
+
+def gazetteer_section(manifest: dict, root: Path) -> list[str]:
+    """Each FIR's follow-up statement names the same people with no labels.
+    Recall on it without the gazetteer, and with one holding the names an
+    officer would have confirmed on the FIR: name suggestions there whose
+    tiles cover a gold name (the engine's own hashes, not the gold text)."""
+    firs = {(p["doc_id"], p["form"]): p for p in manifest["pages"]}
+    stats = defaultdict(lambda: [0, 0, 0, 0])  # (lang, form) -> [names, caught without, caught with, gazetteer size]
+    for fu in manifest.get("followups", []):
+        fir = firs[(fu["doc_id"], fu["form"])]
+        key = _case_key(fu["doc_id"])
+        gold_name_tiles = {t for e in fir["entities"] if e["type"] == "name" for t in e["tiles"]}
+        known = {h for s in _suggest(fir, root, GazetteerInput(case_key=base64.b64encode(key).decode()))
+                 if s.row * fir["grid"] + s.col in gold_name_tiles for h in s.name_hashes}
+        without = {s.row * fu["grid"] + s.col for s in _suggest(fu, root)}
+        with_g = {s.row * fu["grid"] + s.col for s in _suggest(
+            fu, root, GazetteerInput(case_key=base64.b64encode(key).decode(), name_hashes=sorted(known)))}
+        row = stats[(fu["lang"], fu["form"])]
+        row[3] += len(known)
+        for e in fu["entities"]:
+            row[0] += 1
+            row[1] += set(e["tiles"]) <= without
+            row[2] += set(e["tiles"]) <= with_g
+    lines = ["", "### Case gazetteer: names in a follow-up statement, never labelled", "",
+             "| Language | Form | Without gazetteer | With gazetteer | Name hashes confirmed on the FIRs |", "|---|---|---|---|---|"]
+    for lang in ("en", "hi", "kn"):
+        for form in ("clean", "scanned"):
+            n, wo, w, g = stats[(lang, form)]
+            lines.append(f"| {LANG_NAMES[lang]} | {form} | {_pct(wo, n)} | **{_pct(w, n)}** | {g} |")
+    return lines
+
+
+def cross_script_lines() -> list[str]:
+    lines = ["", "### Gazetteer key agrees across scripts (same person, Latin / Devanagari / Kannada)", "",
+             "| List | All three | Latin = Devanagari | Latin = Kannada | Devanagari = Kannada |", "|---|---|---|---|---|"]
+    for label, names in (("tuning (rules written against it)", PARALLEL_NAMES), ("held-out (measured once)", PARALLEL_NAMES_HOLDOUT)):
+        keys = [tuple(name_key(x) if x else None for x in row) for row in names]
+        n = len(keys)
+        lines.append(f"| {label} | {_pct(sum(a == b == c for a, b, c in keys), n)} | {_pct(sum(a == b for a, b, _ in keys), n)} "
+                     f"| {_pct(sum(a == c for a, _, c in keys), n)} | {_pct(sum(b == c for _, b, c in keys), n)} |")
+    return lines
 
 
 def _pct(n: int, d: int) -> str:
@@ -126,6 +181,7 @@ def main() -> None:
               "| Language | Form | " + " | ".join(f"≥ {c:.1f}" for c in CUTOFFS) + " |", "|---|---|" + "---|" * len(CUTOFFS)]
     for k in combos:
         lines.append(f"| {LANG_NAMES[k[0]]} | {k[1]} | " + " | ".join(_pct(by_cutoff[c][k][1], by_cutoff[c][k][0]).split(" ")[0] for c in CUTOFFS) + " |")
+    lines += gazetteer_section(manifest, args.set) + cross_script_lines()
     print("\n".join(lines))
 
     args.json.write_text(json.dumps({

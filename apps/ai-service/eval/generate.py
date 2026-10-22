@@ -36,7 +36,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from app.verhoeff import verhoeff_check_digit
 
-from .fixtures import ADDRESSES, FOOTER, LABELS, NAMES, NARRATIVE, STATIONS, TITLE
+from .fixtures import ADDRESSES, FOOTER, FOLLOWUP, LABELS, NAMES, NARRATIVE, STATIONS, TITLE
 
 OUT = Path(__file__).parent / "out"
 GRID = 20
@@ -100,7 +100,22 @@ def _address(lang: str, rng: random.Random) -> str:
     return f"{house}, {area}, {city} - {pin}"
 
 
-def build_document(lang: str, rng: random.Random, number: int) -> list[list[Span]]:
+def _fill(template: str, values: dict[str, tuple[str, str | None]]) -> list[Span]:
+    spans: list[Span] = []
+    rest = template
+    while "{" in rest:
+        before, _, after = rest.partition("{")
+        key, _, rest = after.partition("}")
+        if before:
+            spans.append(Span(before))
+        value, kind = values[key]
+        spans.append(Span(value, kind))
+    if rest:
+        spans.append(Span(rest))
+    return spans
+
+
+def build_document(lang: str, rng: random.Random, number: int) -> tuple[list[list[Span]], dict]:
     L = {k: rng.choice(v) for k, v in LABELS[lang].items()}
     female, male = NAMES[lang]["female"], NAMES[lang]["male"]
     victim = rng.choice(female)
@@ -131,19 +146,15 @@ def build_document(lang: str, rng: random.Random, number: int) -> list[list[Span
     values = {"victim": (victim, "name"), "accused": (accused, "name"), "phone": (accused_phone, "phone"),
               "place": (station, None), "date": (date, "ignore")}
     for template in NARRATIVE[lang]:
-        spans: list[Span] = []
-        rest = template
-        while "{" in rest:
-            before, _, after = rest.partition("{")
-            key, _, rest = after.partition("}")
-            if before:
-                spans.append(Span(before))
-            value, kind = values[key]
-            spans.append(Span(value, kind))
-        if rest:
-            spans.append(Span(rest))
-        lines.append(spans)
-    return lines
+        lines.append(_fill(template, values))
+    return lines, {"victim": victim, "accused": accused, "witness": witness, "date": date}
+
+
+def build_followup(lang: str, people: dict) -> list[list[Span]]:
+    """A later statement in the same case: the same people, never labelled."""
+    values = {"victim": (people["victim"], "name"), "accused": (people["accused"], "name"),
+              "witness": (people["witness"], "name"), "date": (people["date"], "ignore")}
+    return [[Span(TITLE[lang])], []] + [_fill(t, values) for t in FOLLOWUP[lang]]
 
 
 # --- Rendering --------------------------------------------------------------
@@ -278,21 +289,31 @@ def main() -> None:
     out_dir = args.out
 
     rng = random.Random(args.seed)
+    # Follow-up pages draw from their own stream, so adding them left the
+    # FIR pages (and the numbers published for them) unchanged.
+    followup_rng = random.Random(args.seed + 1)
     (out_dir / "pages").mkdir(parents=True, exist_ok=True)
-    pages = []
+    pages, followups = [], []
+
+    def save(kind: str, doc_id: str, lang: str, form: str, image, g, ig, extra, into: list) -> None:
+        path = out_dir / "pages" / f"{doc_id}-{kind}{form}.png"
+        image.save(path, "PNG")
+        into.append({"doc_id": doc_id, "lang": lang, "form": form, "path": str(path.relative_to(out_dir)),
+                     "width": PAGE_W, "height": PAGE_H, "grid": GRID, **extra,
+                     "entities": [_entity_json(e) for e in g], "ignore": [_entity_json(e) for e in ig]})
+
     for lang in ("en", "hi", "kn"):
         for n in range(1, args.docs_per_language + 1):
             doc_id = f"{lang}-{n:02d}"
-            img, gold, ignore = render(build_document(lang, rng, n))
-            scanned, s_both, meta = scan(img, gold + ignore, rng)
-            s_gold, s_ignore = s_both[: len(gold)], s_both[len(gold):]
-            for form, image, g, ig, extra in (("clean", img, gold, ignore, {}), ("scanned", scanned, s_gold, s_ignore, meta)):
-                path = out_dir / "pages" / f"{doc_id}-{form}.png"
-                image.save(path, "PNG")
-                pages.append({"doc_id": doc_id, "lang": lang, "form": form, "path": str(path.relative_to(out_dir)),
-                              "width": PAGE_W, "height": PAGE_H, "grid": GRID, **extra,
-                              "entities": [_entity_json(e) for e in g], "ignore": [_entity_json(e) for e in ig]})
-    manifest = {"seed": args.seed, "font": args.font, "docs_per_language": args.docs_per_language, "pages": pages}
+            lines, people = build_document(lang, rng, n)
+            for kind, page_lines, page_rng, into in (("", lines, rng, pages), ("followup-", build_followup(lang, people), followup_rng, followups)):
+                img, gold, ignore = render(page_lines)
+                scanned, s_both, meta = scan(img, gold + ignore, page_rng)
+                s_gold, s_ignore = s_both[: len(gold)], s_both[len(gold):]
+                save(kind, doc_id, lang, "clean", img, gold, ignore, {}, into)
+                save(kind, doc_id, lang, "scanned", scanned, s_gold, s_ignore, meta, into)
+    manifest = {"seed": args.seed, "font": args.font, "docs_per_language": args.docs_per_language,
+                "pages": pages, "followups": followups}
     (out_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
     print(f"wrote {len(pages)} pages ({args.docs_per_language} documents x 3 languages x 2 forms) to {out_dir}")
 

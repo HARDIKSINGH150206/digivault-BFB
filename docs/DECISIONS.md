@@ -227,7 +227,7 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 **Consequences:** Holidays don't extend the period (the statute doesn't say they do). A case that's re-opened starts showing its deadline again, likely overdue.
 
 ## ADR-033 — Redaction recall: how it is measured, and the engine fixes it led to
-**Status:** Accepted (2026-10-22), implemented (Phase 6) except the case gazetteer (Open)
+**Status:** Accepted (2026-10-22), implemented (Phase 6); the case gazetteer, left open here, is ADR-034
 **Context:** docs/07 Phase 6 asks for real recall numbers per entity type and language. Nothing measured the AI service before; the first run left at least one identifier visible in 80–100% of documents.
 **Decision:**
 - Test set generated, not collected: synthetic FIRs in English, Hindi and Kannada, clean and scan-degraded, with gold labels from each word's actual ink. A tuning set (seed 2026, sans) and a held-out set (seed 77, serif, not looked at until the changes were final). Real FIRs can't be used (BNS s.72), and synthetic ones give exact labels.
@@ -238,3 +238,15 @@ To add one: copy the template at the bottom, take the next number, never renumbe
 - No confidence cutoff for pre-selection: anything at 0.8 or above loses ~10 points of recall in Hindi and Kannada (docs/08).
 **Open — case gazetteer (FR-33):** flagging names confirmed in one document across the case's other documents needs the names stored somewhere. Options: plaintext in Postgres (simple, but a database of victim names is exactly what BNS s.72 protects); a keyed hash per name token (HMAC with a server key, matched against hashed OCR tokens; no plaintext stored, key must be protected like the salt key); or keep it per upload only (no storage, the officer re-confirms in each document). Needs a human decision.
 **Consequences:** Rule 2 is unaffected: everything here only changes suggestions. Numbers are from typed synthetic pages and will be lower on handwriting and real scans (docs/08 §Limits). The test set shares label vocabulary between tuning and held-out sets.
+
+## ADR-034 — Case gazetteer: keyed hashes, per-case keys, cross-script normalisation
+**Status:** Accepted (2026-10-22), implemented (Phase 6). Resolves ADR-033 "Open".
+**Context:** docs/07 Phase 6: a name an officer confirms in one document of a case should be flagged in the case's other documents. That needs names remembered across uploads, and a table of victim names is what BNS s.72 protects.
+**Decision (developer's choice of the options in ADR-033):**
+- Store only HMAC-SHA256(case key, "digivault/gazetteer/v1/name|" + normalised name) in `CaseGazetteerEntry` (insert-only for the app role). Case key = HMAC-SHA256(`GAZETTEER_KEY`, "digivault/gazetteer/v1/case|" + caseId): the same name hashes differently in every case, so entries can't be linked across cases. `GAZETTEER_KEY` is its own 32-byte key, not the salt key; `GAZETTEER_KEY_ID` tags each entry so a key change starts afresh instead of mismatching.
+- The AI service already reads every page, so it does the normalising and hashing. Upload sends it the case key and the case's hashes; it returns `name_hashes` on name tiles and flags one- and two-word runs whose hash is known (`source: "gazetteer"`). No name text crosses the web/AI boundary; neither side stores a name.
+- A name enters the gazetteer only when an officer confirms a tile carrying its hash. A tile can carry several hashes (a tile is about two text lines tall).
+- Normalisation: lowercase; ZWJ/ZWNJ, punctuation and digits removed; Kannada mapped onto Devanagari by code point; Devanagari romanised (Hindi drops the final inherent vowel, Kannada keeps it); then one set of Latin spelling rules for every script (vowel length, aspirates, doubled letters, -ey, Rao/राव, final anusvara as m, every a/e between two consonants dropped). Key = first two words, or one word of 4+ letters.
+- Word boxes are padded by 15% of their height before mapping to tiles (all suggestions, not only the gazetteer): Tesseract's box stops short of stacked Kannada signs, and a sliver of a name in an unmasked tile leaks.
+- Key unset or invalid: the gazetteer is off; upload and confirm work as before (rule 2).
+**Consequences:** Measured in docs/08: unlabelled names in a follow-up document 25–88% → 100% (tuning set), 28–92% → 98–100% (held-out); checked end to end in the app (`scripts/e2e-redaction-boxes.mjs`). Cross-script key agreement is a heuristic: 17/20 on held-out names (Nair, Begum, Krishna differ between Latin and Indic spellings); same-script matches are exact. Padding costs about 10 points of tile precision. Anyone with `GAZETTEER_KEY` and a case id can test a guessed name against that case's entries: protect the key like the salt key. Losing it loses the gazetteers, not any evidence.
