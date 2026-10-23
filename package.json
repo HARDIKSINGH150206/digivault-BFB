@@ -7,7 +7,9 @@
   },
   "scripts": {
     "test": "pnpm -r --if-present test",
-    "audit:verify": "node apps/web/scripts/verify-audit-chain.mjs"
+    "audit:verify": "node apps/web/scripts/verify-audit-chain.mjs",
+    "eval:redaction": "cd apps/ai-service && .venv/bin/python -m eval.generate && .venv/bin/python -m eval.run && .venv/bin/python -m eval.generate --seed 77 --font serif --out eval/out/holdout && .venv/bin/python -m eval.run --set eval/out/holdout",
+    "eval:gate": "cd apps/ai-service && .venv/bin/python -m eval.gate"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"

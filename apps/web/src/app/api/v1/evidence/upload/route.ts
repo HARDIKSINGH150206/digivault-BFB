@@ -9,6 +9,7 @@ import { saltKeyFromEnv, storeVersionSalts, type SaltKey } from "@/lib/tile-salt
 import { parseUploadSalts, PROOF_V2 } from "@/lib/proof-v2";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
 import { requestRedactionSuggestions } from "@/lib/ai-service";
+import { caseGazetteer } from "@/lib/gazetteer";
 import { persistSuggestionsAsFlags } from "@/lib/redaction-suggestions-repo";
 import { anchorVersionInBackground } from "@/lib/anchor";
 
@@ -163,6 +164,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   let documentId = metadata.document_id ?? null;
+  let caseId: string;
   let versionNo = 1;
   let previousHash: string | null = null;
 
@@ -171,6 +173,7 @@ export async function POST(req: Request): Promise<Response> {
     if (!doc) {
       return Response.json({ error: "NOT_FOUND", message: "document_id does not exist." }, { status: 404 });
     }
+    caseId = doc.caseId;
     const latestVersion = await prisma.documentVersion.findFirst({
       where: { documentId },
       orderBy: { versionNo: "desc" },
@@ -195,6 +198,7 @@ export async function POST(req: Request): Promise<Response> {
         },
       });
       documentId = created.id;
+      caseId = created.caseId;
     } catch (err) {
       // uploaderId comes from a verified session, so the only foreign key
       // that can fail here is caseId.
@@ -262,6 +266,8 @@ export async function POST(req: Request): Promise<Response> {
   // CLAUDE.md rule 2, a failure/timeout here must NEVER fail the upload —
   // the document is already fully hashed and stored above.
   try {
+    // Names already confirmed elsewhere in this case (ADR-034); null = gazetteer off.
+    const gazetteer = await caseGazetteer(caseId);
     const suggestions = await requestRedactionSuggestions(
       version.id,
       metadata.grid_size,
@@ -270,7 +276,8 @@ export async function POST(req: Request): Promise<Response> {
         widthPx: p.width_px,
         heightPx: p.height_px,
         pngBytes: pageBuffers[i],
-      }))
+      })),
+      gazetteer
     );
     await persistSuggestionsAsFlags(version.id, suggestions);
   } catch (err) {

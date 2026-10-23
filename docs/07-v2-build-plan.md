@@ -136,7 +136,7 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 4 — Audit log anchoring (Day 4)
 
-**Status (2026-10-19, branch `v2/phase-4-audit-anchoring`): built and tested on a local chain; live Amoy run pending POL.** 6-hourly standalone anchor (`lib/audit-anchor.ts`, started from `src/instrumentation.ts`), `AuditHeadAnchor` records, MinIO copy, `pnpm audit:verify --onchain` checks every anchored head, admin page `/dashboard/audit` with a manual "anchor now" (step-up). Done-when check passes on a copy of the dev DB against the real Amoy heads: an edited row is named (`seq 150`); a rewrite with recomputed hashes, which the chain check alone accepts, is located (`between seq 149 and 153`). Choices: ADR-030.
+**Status (2026-10-20, branch `v2/phase-4-live-anchor`): Phase 4 complete, including the live Amoy run.** First standalone audit-head anchor on Amoy, triggered through the admin route (`POST /api/v1/admin/audit/anchor`, PIN step-up): seq 337, tx `0x47d50f33bc63255a953db33950f86c3bdfa76f41da669623940db70c623bbe9e`, block 50692857, contract v2, 50,154 gas = 0.0015 POL; MinIO copy `audit-heads/seq-337.json`. `pnpm audit:verify --onchain` then verified the log up to entry #337 against all 19 anchored heads. Earlier (2026-10-19, branch `v2/phase-4-audit-anchoring`): built and tested on a local chain. 6-hourly standalone anchor (`lib/audit-anchor.ts`, started from `src/instrumentation.ts`), `AuditHeadAnchor` records, MinIO copy, `pnpm audit:verify --onchain` checks every anchored head, admin page `/dashboard/audit` with a manual "anchor now" (step-up). Done-when check passes on a copy of the dev DB against the real Amoy heads: an edited row is named (`seq 150`); a rewrite with recomputed hashes, which the chain check alone accepts, is located (`between seq 149 and 153`). Choices: ADR-030.
 
 - Every document anchor tx also carries the current `(auditSeq, auditHead)` at no extra tx cost.
 - Standalone `anchorAuditHead` every 6 hours (≈0.012 POL/day), skipped if no new entries.
@@ -163,6 +163,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 6 — Redaction recall measurement (Days 5–6)
 
+**Status (2026-10-22, branch `v2/phase-6-recall`): measured and improved; case gazetteer open.** `pnpm eval:redaction` generates a tuning set and a held-out set (60 pages each: English, Hindi, Kannada × clean and scanned) and prints recall per type and language, leak rate, precision and recall at confidence cutoffs. Every identifier fully covered, held-out set: 74–94% before → 96–100% after (docs/08). Changes the measurement led to: tile mapping now matches the hashing split, background flattening before OCR, phone and label patterns, Kannada joiner, in-page name propagation, Verhoeff scoring (ADR-033). Case gazetteer (2026-10-22, branch `v2/phase-6-gazetteer`): keyed per-case name hashes, insert-only table, cross-script normalisation (ADR-034); unlabelled names in a follow-up document 25–92% → 98–100%. Precision pass (2026-10-22, branch `v2/phase-6-precision`, ADR-035): form text and Indic script kept out of NER, address context for green, review bands, value-only label patterns; precision 51–74% → 67–88%, title/footer boxes 13–25% → 0–3%, recall unchanged or higher; `pnpm eval:gate` and a CI workflow enforce it. Pitch slide done. Not done: a real scanned FIR.
+
 - **Test set:** synthetic FIRs with gold labels for names, phone numbers, Aadhaar numbers, addresses. Start with **English, Hindi, Kannada** (what the AI service supports: `real_suggestions.py`). Tamil/Telugu only if OCR + NER support is added first — otherwise they measure a missing feature.
 - Each FIR in two forms: native text PDF and a scanned image version (rotated, noisy, JPEG-sourced) so the OCR path is measured.
 - Aadhaar detection validated with the Verhoeff checksum.
@@ -176,6 +178,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 
 ## Phase 7 — BNSS s.193(2) deadline tracking (Day 6)
 
+**Status (2026-10-19, branch `v2/phase-7-deadlines`): Phase 7 complete.** Rule in `lib/bnss-deadline.ts` (18 unit tests), `bnss_deadline` on every case from the API, FIR date and sections settable on create and through an audited `PATCH`, badge on both dashboards and the case page, alerts at the top of "Needs your attention" and on the case page. `scripts/seed-deadline-cases.mjs` seeds six demo cases dated from today; `scripts/e2e-deadlines.mjs` passes 14/14 — the day-50 case shows an amber badge and alerts, the non-covered and closed cases show neither. Choices (due date, day counting, closed cases): ADR-032.
+
 - Applies only to BNS ss.64, 65, 66, 67, 68, 70, 71 and POCSO ss.4, 6, 8, 10 — not every offence against women and not all of POCSO. Driven by `Case.offenceSections`.
 - Clock starts at `Case.firRegisteredAt` (date the information was recorded).
 - Countdown badge; alerts at day 45 (amber), 55 (red) and 60 (overdue).
@@ -185,6 +189,8 @@ Additions to the spec below: `removeAnchorer` *retires* a key (its anchors stay 
 ---
 
 ## Phase 8 — Demo hardening (Day 7)
+
+**Status (2026-10-23): Phase 8 complete.** All 9 demo documents re-anchored as proof-v2 versions on contract v2 (`seed-demo.ts` upgrades any document still on v1). `scripts/golden-path.mjs` runs the docs/05 sequence end to end; two rehearsals passed 10/10 (second on the messy scan). Messy scan: `public/sample-firs/messy-fir.pdf` (`eval/messy.py`), 12/12 identifiers covered in the app. `scripts/e2e-three-browsers.mjs`: Chromium, Firefox and WebKit compute identical roots on the crypto-core vectors and verify the same real document identically (WebKit run 2026-10-23, after installing `libevent-2.1-7t64` and `libmanette-0.2-0`). Measured gas: 0.0031 POL per document anchor. Earlier (2026-10-20, branch `v2/phase-8-docs`): docs done. `docs/05-demo-golden-path.md` written (accounts, pre-demo checklist, 12-step sequence with timings, recovery table, gas per run). Threat-model table in `docs/ARCHITECTURE.md` §6 extended with six rows (AI miss, stolen session, leaked share, moved FIR date, hostile RPC, deleted pages); the paper's Table 2 was not available to reuse. Still open: three-browser Playwright check, the messy scan, re-anchoring the demo documents on v2, two rehearsals.
 
 - Write `docs/05-demo-golden-path.md` (CLAUDE.md step 7 expects it).
 - Threat-model table (adversary → attack → defence) in `docs/ARCHITECTURE.md`; reuse Table 2 from the paper.

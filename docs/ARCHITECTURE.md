@@ -109,6 +109,8 @@ Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C
 
 ## 6. Threat model (summary)
 
+The paper's Table 2 was not available when this table was extended (Phase 8); the rows below cover the same adversaries plus those the v2 phases added. ✅ = defended in current code; ⚠️ = partial, with the limit stated.
+
 | Adversary | Attack | Defence | Status |
 |---|---|---|---|
 | External attacker | Alter a stored page in MinIO | Recomputed root ≠ on-chain anchor | ✅ |
@@ -121,6 +123,12 @@ Key fields: `DocumentVersion.{proofVersion, merkleRoot (R for v2), commitment (C
 | Redactor | Show fabricated content inside a "masked" tile | Verifier checks masked tiles are solid mask colour | ✅ Phase 3 |
 | Share-link holder | Get the unredacted original | Shares serve only redacted versions (F-03) | ✅ |
 | Signing-key thief | Anchor forged commitments | Contract v2: revoke the key from the compromise time (its later anchors become untrusted in `/verify`), two-step owner rotation (ADR-028); HSM roadmap | ✅ Phase 2 (owner key remains a single point of trust) |
+| AI redaction miss | A victim's name or phone survives in a shared copy (BNS s.72) | Suggestions are never final: an officer reviews every page and can mask any tile; shares serve only redacted versions | ⚠️ depends on the reviewer; recall not yet measured (Phase 6) |
+| Stolen session token | Confirm a redaction, anchor or download a certificate as the officer | Those routes need a step-up token: 5 min, bound to the same user (`lib/step-up.ts`) | ⚠️ PIN fallback always accepted (§8) |
+| Leaked share link | Wider access to the shared copy | Token expiry and view limit; redacted versions only; every download audited | ✅ |
+| Officer moving the FIR date | Hide a missed BNSS s.193(2) deadline | Date and sections are changed only through an audited `PATCH` with old and new values (ADR-032) | ✅ detected in the audit log, not prevented |
+| Hostile or broken RPC endpoint | Tell `/verify` a commitment is (or isn't) anchored | Portal checks the chain ID and the hardcoded contract; configured RPC, then a public fallback | ⚠️ the portal trusts the RPC's answer; a second independent RPC would remove that |
+| Insider deleting evidence pages from MinIO | Make a document unverifiable | Anchors survive, so a missing or altered page is detected; anchor records are Object-Locked | ⚠️ detected, not prevented: the page bucket itself is not locked; backups out of scope |
 
 ## 7. Deployment
 

@@ -16,7 +16,9 @@
 // fictional; every page carries a "synthetic demonstration record" footer.
 //
 // Safe to re-run: users are upserted by service number, cases by case
-// number, and documents already present in a case (by title) are skipped.
+// number, and documents already present in a case (by title) are skipped —
+// except that a document whose current version is still proof format v1 gets
+// the same pages again as a new v2 version (salted, anchored on contract v2).
 //
 // Prereqs: DB migrated, web app running (DEMO_BASE_URL, default
 // http://localhost:3000). Schema lives in the repo-root prisma/ directory.
@@ -466,7 +468,8 @@ async function login(user: DemoUser): Promise<string> {
   return body.token;
 }
 
-async function uploadDocument(token: string, caseId: string, caseNumber: string, doc: DemoDocument) {
+/** Uploads `doc` as a new document, or, with `documentId`, as the next version of that document. */
+async function uploadDocument(token: string, caseId: string, caseNumber: string, doc: DemoDocument, documentId: string | null = null) {
   const pngs: Buffer[] = [];
   for (let i = 0; i < doc.pages.length; i++) pngs.push(await renderPage(doc.pages[i], caseNumber, i + 1, doc.pages.length));
   const decoded = [];
@@ -481,7 +484,7 @@ async function uploadDocument(token: string, caseId: string, caseNumber: string,
 
   const metadata = {
     case_id: caseId,
-    document_id: null,
+    document_id: documentId,
     title: doc.title,
     doc_type: doc.docType,
     source_type: "NATIVE_PDF",
@@ -574,7 +577,18 @@ async function main() {
         where: { caseId: kase.id, title: doc.title, currentVersionId: { not: null } },
       });
       let ref: { documentId: string; versionId: string };
-      if (existing) {
+      const current = existing
+        ? await prisma.documentVersion.findUniqueOrThrow({ where: { id: existing.currentVersionId! } })
+        : null;
+      if (existing && current && current.proofVersion < 2) {
+        // Seeded before proof format v2 / contract v2 (docs/07 Phase 8): the
+        // same pages again as the next version, salted and anchored on v2.
+        // The legacy version stays as version 1 of the document's chain.
+        const res = await uploadDocument(tokens[c.owner], kase.id, c.caseNumber, doc, existing.id);
+        ref = { documentId: res.document_id, versionId: res.document_version_id };
+        newVersions.push(ref);
+        console.log(`  doc v2 added ${doc.title} (was proof v${current.proofVersion})`);
+      } else if (existing) {
         ref = { documentId: existing.id, versionId: existing.currentVersionId! };
         console.log(`  doc exists   ${doc.title}`);
       } else {

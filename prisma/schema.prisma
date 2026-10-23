@@ -83,6 +83,7 @@ model Case {
   offenceSections String[]  @default([]) // e.g. "BNS 64", "POCSO 4"
 
   documents Document[]
+  gazetteer CaseGazetteerEntry[]
 }
 
 model Document {
@@ -160,7 +161,11 @@ model RedactionFlag {
   entityType      String // e.g. "victim_name", "phone", "address"
   confidenceScore Float
   masked          Boolean   @default(false)
-  source          String // "text_layer" | "bhashini_ocr" | "indicner"
+  source          String // "text_layer" | "bhashini_ocr" | "indicner" | "gazetteer"
+  // Keyed hashes of the names this tile covers (ADR-034), never the names
+  // themselves. A tile can span two text lines, so it can hold two names.
+  // Confirming the tile adds them to the case gazetteer.
+  nameHashes      String[]  @default([])
   reviewedBy      String?
   reviewedAt      DateTime?
   reviewer        User?     @relation("RedactionReviewer", fields: [reviewedBy], references: [id])
@@ -260,4 +265,22 @@ model VersionSaltSet {
   ciphertext        Bytes
   authTag           Bytes
   createdAt         DateTime        @default(now())
+}
+
+// Case gazetteer (docs/07 Phase 6, ADR-034): names an officer confirmed for
+// redaction in one of the case's documents, flagged in its other documents.
+// Only HMAC-SHA256(per-case key, normalised name) is stored; the per-case key
+// is derived from GAZETTEER_KEY, so the same name hashes differently in
+// another case. Insert-only for the app role (migration revokes UPDATE/DELETE).
+model CaseGazetteerEntry {
+  id              String   @id @default(cuid())
+  case            Case     @relation(fields: [caseId], references: [id])
+  caseId          String
+  nameHash        String
+  keyId           String
+  sourceVersionId String
+  createdById     String
+  createdAt       DateTime @default(now())
+
+  @@unique([caseId, keyId, nameHash])
 }

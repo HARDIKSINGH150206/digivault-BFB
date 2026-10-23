@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, RbacError, rbacErrorResponse } from "@/lib/rbac";
 import { writeAuditLog, sourceIpFromRequest } from "@/lib/audit";
+import { CaseFieldError, caseJson, parseFirRegisteredAt, parseOffenceSections } from "@/lib/case-json";
 
 export const runtime = "nodejs";
 
@@ -34,17 +35,8 @@ export async function GET(req: Request): Promise<Response> {
     include: { _count: { select: { documents: true } } },
   });
 
-  return Response.json({
-    cases: cases.map((c) => ({
-      id: c.id,
-      case_number: c.caseNumber,
-      case_type: c.caseType,
-      status: c.status,
-      department: c.department,
-      document_count: c._count.documents,
-      created_at: c.createdAt.toISOString(),
-    })),
-  });
+  const now = new Date();
+  return Response.json({ cases: cases.map((c) => caseJson(c, c._count.documents, now)) });
 }
 
 interface CreateCaseBody {
@@ -52,6 +44,10 @@ interface CreateCaseBody {
   case_type: string;
   status?: string;
   department: string;
+  /** BNSS s.193(2) (docs/07 Phase 7): "YYYY-MM-DD" or ISO timestamp. */
+  fir_registered_at?: string | null;
+  /** e.g. ["BNS 64", "POCSO 4"] or "BNS 64, 74". */
+  offence_sections?: string | string[];
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -71,8 +67,20 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
+  let firRegisteredAt: Date | null = null;
+  let offenceSections: string[] = [];
+  try {
+    if (body.fir_registered_at !== undefined) firRegisteredAt = parseFirRegisteredAt(body.fir_registered_at);
+    if (body.offence_sections !== undefined) offenceSections = parseOffenceSections(body.offence_sections);
+  } catch (err) {
+    if (err instanceof CaseFieldError) return Response.json({ error: "BAD_REQUEST", message: err.message }, { status: 400 });
+    throw err;
+  }
+
   const created = await prisma.case.create({
     data: {
+      firRegisteredAt,
+      offenceSections,
       caseNumber: body.case_number,
       caseType: body.case_type,
       status: body.status ?? "OPEN",
@@ -86,18 +94,9 @@ export async function POST(req: Request): Promise<Response> {
     action: "CREATE_CASE",
     targetId: created.id,
     targetType: "Case",
+    targetMeta: { firRegisteredAt: firRegisteredAt?.toISOString() ?? null, offenceSections },
     sourceIp: sourceIpFromRequest(req),
   });
 
-  return Response.json(
-    {
-      id: created.id,
-      case_number: created.caseNumber,
-      case_type: created.caseType,
-      status: created.status,
-      department: created.department,
-      created_at: created.createdAt.toISOString(),
-    },
-    { status: 201 }
-  );
+  return Response.json(caseJson(created, 0), { status: 201 });
 }

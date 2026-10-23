@@ -1,0 +1,72 @@
+# Redaction quality gate (docs/08, apps/ai-service/eval/gate.py): AI service
+# unit tests, then both synthetic test sets scored against the committed
+# baseline. Fails if recall drops at all or precision drops by more than
+# 2 points for any language and form.
+#
+# Runs in ubuntu:26.04 because the baseline was measured with its
+# Tesseract (5.5.0) and language data; Python packages are pinned in
+# requirements-eval.lock. A different OCR build can move the numbers.
+name: redaction-quality
+
+on:
+  pull_request:
+    paths:
+      - "apps/ai-service/**"
+      - ".github/workflows/redaction-quality.yml"
+  push:
+    branches: [dev, main]
+    paths:
+      - "apps/ai-service/**"
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/ai-service
+    steps:
+      - name: System packages
+        working-directory: /
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates python3 python3-venv python3-pip \
+            tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin tesseract-ocr-kan \
+            fonts-noto-core libraqm0 libfribidi0
+          tesseract --version | head -1
+
+      - uses: actions/checkout@v4
+
+      - name: Python environment
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements-eval.lock
+          .venv/bin/python -m pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+      - name: Unit tests
+        run: .venv/bin/python -m unittest discover -s tests -t .
+
+      - name: Generate test sets
+        run: |
+          .venv/bin/python -m eval.generate
+          .venv/bin/python -m eval.generate --seed 77 --font serif --out eval/out/holdout
+
+      - name: Score
+        run: |
+          .venv/bin/python -m eval.run
+          .venv/bin/python -m eval.run --set eval/out/holdout
+
+      - name: Gate
+        run: .venv/bin/python -m eval.gate
+
+      - name: Keep results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redaction-eval-results
+          path: |
+            apps/ai-service/eval/out/results.json
+            apps/ai-service/eval/out/holdout/results.json

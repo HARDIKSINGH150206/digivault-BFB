@@ -29,5 +29,12 @@ def redaction_suggestions(req: SuggestionRequest) -> SuggestionResponse:
                 status_code=422, detail=f"page {page.page_index}: invalid png_base64 ({exc})"
             ) from exc
 
-    suggestions = generate_suggestions(req.document_version_id, req.grid_size, req.pages)
+    if req.gazetteer is not None:
+        try:
+            if len(base64.b64decode(req.gazetteer.case_key, validate=True)) != 32:
+                raise ValueError("must be 32 bytes")
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"gazetteer.case_key: invalid ({exc})") from exc
+
+    suggestions = generate_suggestions(req.document_version_id, req.grid_size, req.pages, req.gazetteer)
     return SuggestionResponse(document_version_id=req.document_version_id, status="ready", suggestions=suggestions)

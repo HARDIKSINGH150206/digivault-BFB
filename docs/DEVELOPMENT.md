@@ -16,9 +16,9 @@ How to set up, run, test and change the project. Read `CLAUDE.md` first — its 
 
 ```
 apps/web/             Next.js 14 app: UI, API routes, server re-hash, anchoring, /verify
-apps/web/scripts/     smoke-test.mjs, e2e-part1..3.mjs, e2e-certificate.mjs (Playwright)
+apps/web/scripts/     smoke-test.mjs, e2e-part1..3.mjs, e2e-certificate.mjs, e2e-deadlines.mjs (Playwright), seed-deadline-cases.mjs
 apps/web/prisma/      seed-demo.ts (realistic demo data through the real pipeline)
-apps/ai-service/      FastAPI redaction-suggestion service
+apps/ai-service/      FastAPI redaction-suggestion service; eval/ (recall test set + scorer), tests/
 packages/crypto-core/ PDF→PNG, tile hashing, Merkle (shared by browser, server, /verify)
 packages/crypto-core/poc/  in-browser grid-size proof of concept
 packages/contracts/   EvidenceAnchor.sol, Hardhat, deployments/amoy.json
@@ -38,7 +38,7 @@ cp packages/contracts/.env.example packages/contracts/.env
 ```
 
 Fill in:
-- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials. `PUBLIC_BASE_URL` (certificate QR links; use a LAN IP or tunnel for phone demos). `SALT_ENCRYPTION_KEY` (`openssl rand -base64 32`) — required from Phase 1. Optional: `AMOY_RPC_FALLBACK_URLS`, `MINIO_ANCHOR_BUCKET` / `MINIO_ANCHOR_RETENTION_DAYS`, `MINIO_PUBLIC_PROOF_BUCKET` / `MINIO_PUBLIC_URL`, and the `ANCHOR_*` fee caps — see `apps/web/.env.example`.
+- `apps/web/.env.local` — `DATABASE_URL` for the **`digivault_app`** role (never the owner role), `AUTH_SESSION_SECRET` (random), `AMOY_RPC_URL`, `AI_SERVICE_URL=http://localhost:8001`, MinIO credentials. `PUBLIC_BASE_URL` (certificate QR links; use a LAN IP or tunnel for phone demos). `SALT_ENCRYPTION_KEY` (`openssl rand -base64 32`) — required from Phase 1. `GAZETTEER_KEY` (another `openssl rand -base64 32`, never the salt key) — optional; turns on the case gazetteer (ADR-034). Back it up like the salt key. Optional: `AMOY_RPC_FALLBACK_URLS`, `MINIO_ANCHOR_BUCKET` / `MINIO_ANCHOR_RETENTION_DAYS`, `MINIO_PUBLIC_PROOF_BUCKET` / `MINIO_PUBLIC_URL`, and the `ANCHOR_*` fee caps — see `apps/web/.env.example`.
 - `packages/contracts/.env` — `AMOY_RPC_URL`, `DEPLOYER_PRIVATE_KEY`. The web app reads the signing key from here. **Never commit it.**
 
 Database:
@@ -84,8 +84,16 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | UI e2e (login, case, upload) | `cd apps/web && node scripts/e2e-part1.mjs` |
 | UI e2e (step-up, redaction, cert, share) | `cd apps/web && node scripts/e2e-part2.mjs` |
 | UI e2e (`/verify` against real Amoy anchor, incl. redaction proofs) | `cd apps/web && node scripts/e2e-part3.mjs` |
+| BNSS deadline demo cases / UI check (no gas) | `cd apps/web && node scripts/seed-deadline-cases.mjs` / `node scripts/e2e-deadlines.mjs` |
 | Certificate QR on a phone-sized browser (existing anchor, no gas) | `cd apps/web && CERT_DOCUMENT_ID=… CERT_VERSION_ID=… node scripts/e2e-certificate.mjs` |
 | Unit tests (Vitest, crypto-core + web) | `pnpm test` |
+| AI service unit tests | `cd apps/ai-service && .venv/bin/python -m unittest discover -s tests -t .` |
+| Redaction boxes + gazetteer in the real UI (both services, `GAZETTEER_KEY` set, test set generated; ~0.028 POL) | `cd apps/web && node scripts/e2e-redaction-boxes.mjs` |
+| Demo golden path, scripted rehearsal (docs/05; both services, seeds run; ~0.008 POL) | `cd apps/web && node scripts/golden-path.mjs` (`GOLDEN_PDF=…` for another file) |
+| Same hashes in Chromium, Firefox and WebKit (vectors + a golden-path run's files; no gas; WebKit needs `libevent-2.1-7t64` and `libmanette-0.2-0` on Ubuntu) | `cd apps/web && node scripts/e2e-three-browsers.mjs [files-dir]` (`E2E_ENGINES=chromium,firefox` for a subset) |
+| Regenerate the demo's messy scan | `cd apps/ai-service && .venv/bin/python -m eval.messy` |
+| Redaction recall + gazetteer (both test sets, ~6 min, no services needed) | `pnpm eval:redaction` — results in `docs/08`; misses in `apps/ai-service/eval/out/**/results.json` |
+| Redaction quality gate (after `eval:redaction`; also in CI) | `pnpm eval:gate` — fails if recall drops at all or precision by > 2 points; `cd apps/ai-service && .venv/bin/python -m eval.gate --update` only for a deliberate improvement |
 | Regenerate proof-format v2 test vectors | `node packages/crypto-core/reference/gen-vectors.mjs` — only when the spec in `docs/03` §v2 deliberately changes; the vectors pin it |
 | Verify the audit-log hash chain | `pnpm audit:verify` (exit 1 names the first broken `seq`); add `--onchain` to also check every anchored audit head and the legacy-rows anchor on Polygon (a rewrite with recomputed hashes is located between two anchored heads) |
 | Anchor the audit head now | `/dashboard/audit` as ADMIN → "Anchor audit head now" (step-up; one Amoy tx). The server also does it every `AUDIT_ANCHOR_INTERVAL_HOURS` (default 6, `0` = off) |
@@ -93,7 +101,7 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | Public-proof bucket test (local MinIO) | `cd apps/web && MINIO_INTEGRATION=1 pnpm exec vitest run src/lib/storage.minio.test.ts` |
 | Commit pre-chain audit rows (one-off, already done on the dev DB) | `node apps/web/scripts/audit-legacy-genesis.mjs [--dry-run]` — sends one Amoy tx |
 
-The smoke and e2e scripts need the web app running (and the AI service for parts 2–3). Each anchors versions on Amoy (smoke: 2, part 1: 1, parts 2–3: 2 each; ≈0.003 POL per anchor).
+The smoke and e2e scripts need the web app running (and the AI service for parts 2–3). Each anchors versions on Amoy (smoke: 2, part 1: 1, parts 2–3: 2 each; ≈0.0031 POL per document anchor, 0.0015 per standalone audit-head anchor).
 
 ## 5. Database changes
 

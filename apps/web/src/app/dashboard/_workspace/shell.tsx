@@ -216,6 +216,10 @@ a.ws-row:hover { background: var(--ink-3); }
 .ws-chip-ok { --chip: var(--ok); }
 .ws-chip-neutral { --chip: var(--paper-4); }
 .ws-chip-blue { --chip: var(--brand); }
+.ws-deadline-on_track { --chip: var(--paper-4); }
+.ws-deadline-amber { --chip: var(--warn); border-color: var(--warn); color: var(--warn); }
+.ws-deadline-red { --chip: var(--danger); border-color: var(--danger-line); color: var(--danger); }
+.ws-deadline-overdue { --chip: var(--danger); border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger); font-weight: 600; }
 
 .ws-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 24px; row-gap: 12px; margin: 8px 0 14px; font-size: 14px; }
 .ws-dl dt { color: var(--paper-4); }

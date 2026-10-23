@@ -92,8 +92,8 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 | FR-30 | AI service suggests tiles (OCR + NER + regex; English, Hindi, Kannada); never touches hashes | ✅ |
 | FR-31 | Human confirmation required; server masks tiles and creates a new anchored version | ✅ |
 | FR-32 | Redaction proof: verifier proves redacted copy matches the original anchor except declared masked tiles | ✅ Phase 3 (officer download and share-link recipients) |
-| FR-33 | Case gazetteer: confirmed names auto-flagged across a case's documents | 🔜 Phase 6 |
-| FR-34 | Measured recall/precision per entity type and language | 🔜 Phase 6 |
+| FR-33 | Case gazetteer: confirmed names auto-flagged across a case's documents | ✅ Phase 6 (ADR-034; keyed hashes, no names stored) |
+| FR-34 | Measured recall/precision per entity type and language | ✅ Phase 6 (docs/08) |
 | FR-35 | Face/signature detection; cross-case pseudonyms; two-person unmasking | 🗺 |
 
 ### 5.5 Sharing, audit, verification, legal
@@ -102,12 +102,12 @@ Status: ✅ shipped (v1) · 🔜 planned (v2 phase) · 🗺 roadmap
 | FR-40 | Share links (expiry, view cap, revoke) serve only the newest redacted version | ✅ |
 | FR-41 | Insert-only `AuditLog` for the app DB role | ✅ |
 | FR-42 | Audit log hash chain with sequence numbers | ✅ Phase 0 |
-| FR-43 | Audit head anchored with every document anchor + every 6 h; admin verification page | ✅ Phase 4 (live Amoy run pending) |
+| FR-43 | Audit head anchored with every document anchor + every 6 h; admin verification page | ✅ |
 | FR-50 | Public `/verify`: no login, no backend call, hardcoded trusted contract | ✅ |
 | FR-51 | `/verify` handles v1 legacy proofs and v2 proofs | 🔜 Phase 0/1 |
 | FR-52 | Pre-filled, unsigned BSA s.63 certificate | ✅ |
 | FR-53 | Certificate carries commitment, tx, block time + QR to `/verify` | ✅ |
-| FR-60 | BNSS s.193(2) two-month countdown for covered BNS/POCSO sections | 🔜 Phase 7 |
+| FR-60 | BNSS s.193(2) two-month countdown for covered BNS/POCSO sections | ✅ |
 
 ## 6. Non-functional requirements
 
