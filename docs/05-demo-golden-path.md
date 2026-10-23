@@ -8,7 +8,7 @@ Every "Verified" or "Anchored" on screen comes from a real check against Polygon
 - **Messy scan:** `apps/web/public/sample-firs/messy-fir.pdf` — synthetic English FIR, 3.2° skew, fold crease, coffee stain over the Aadhaar and address, heavy noise, JPEG page inside the PDF (`apps/ai-service/eval/messy.py`; gold labels in `messy-fir.gold.json`). In the app its suggestions cover 12/12 identifiers fully.
 - **Demo documents:** all 9 have a current version in proof format v2, anchored on contract v2 (the legacy v1 version stays as version 1 of each chain; `seed-demo.ts` does this for any document still on v1).
 - **Rehearsed twice** with `node scripts/golden-path.mjs` (10/10 steps passed both times, 44–52 s of machine time; the second run on the messy scan).
-- **Cross-browser:** Chromium and Firefox give identical results (`node scripts/e2e-three-browsers.mjs`). **WebKit not yet run:** this machine lacks `libevent-2.1-7t64` and `libmanette-0.2-0`.
+- **Cross-browser:** Chromium, Firefox and WebKit give identical results (`node scripts/e2e-three-browsers.mjs`, 2026-10-23): same vector outputs, same verdicts on a real anchored document and its redaction proof, same recomputed hash for a tampered page. Real Safari on an iPhone is still worth one look during the phone rehearsal.
 
 ---
 

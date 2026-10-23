@@ -90,7 +90,7 @@ cd apps/web && node --experimental-strip-types prisma/seed-demo.ts
 | AI service unit tests | `cd apps/ai-service && .venv/bin/python -m unittest discover -s tests -t .` |
 | Redaction boxes + gazetteer in the real UI (both services, `GAZETTEER_KEY` set, test set generated; ~0.028 POL) | `cd apps/web && node scripts/e2e-redaction-boxes.mjs` |
 | Demo golden path, scripted rehearsal (docs/05; both services, seeds run; ~0.008 POL) | `cd apps/web && node scripts/golden-path.mjs` (`GOLDEN_PDF=…` for another file) |
-| Same hashes in Chromium, Firefox and WebKit (vectors + a golden-path run's files; no gas) | `cd apps/web && node scripts/e2e-three-browsers.mjs [files-dir]` (`E2E_ENGINES=chromium,firefox` for a subset) |
+| Same hashes in Chromium, Firefox and WebKit (vectors + a golden-path run's files; no gas; WebKit needs `libevent-2.1-7t64` and `libmanette-0.2-0` on Ubuntu) | `cd apps/web && node scripts/e2e-three-browsers.mjs [files-dir]` (`E2E_ENGINES=chromium,firefox` for a subset) |
 | Regenerate the demo's messy scan | `cd apps/ai-service && .venv/bin/python -m eval.messy` |
 | Redaction recall + gazetteer (both test sets, ~6 min, no services needed) | `pnpm eval:redaction` — results in `docs/08`; misses in `apps/ai-service/eval/out/**/results.json` |
 | Redaction quality gate (after `eval:redaction`; also in CI) | `pnpm eval:gate` — fails if recall drops at all or precision by > 2 points; `cd apps/ai-service && .venv/bin/python -m eval.gate --update` only for a deliberate improvement |
