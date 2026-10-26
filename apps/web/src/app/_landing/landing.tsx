@@ -58,9 +58,9 @@ function Nav({ signedIn }: { signedIn: boolean }) {
   return (
     <header className="lp-nav">
       <div className="lp-wrap-wide lp-nav-inner">
-        <Link href="/" className="lp-brand" aria-label="DigiVault home">
+        <Link href="/" className="lp-brand" aria-label="Veridoc home">
           <BrandMark size={22} />
-          DigiVault
+          Veridoc
         </Link>
         <nav className="lp-links" aria-label="Sections">
           <a href="#how">How it works</a>
@@ -95,21 +95,21 @@ const SPARK = "M0,34 C10,30 16,12 26,16 C36,20 40,36 52,32 C62,28 66,10 78,14 C9
 
 function ProductPreview() {
   return (
-    <div className="lp-app" role="img" aria-label="DigiVault case workspace with sample data">
+    <div className="lp-app" role="img" aria-label="Veridoc case workspace, illustrative record">
       <aside className="lp-app-side" aria-hidden="true">
         <div className="lp-app-brand">
           <span className="lp-app-logo">
             <BrandMark size={16} />
           </span>
           <span>
-            <b>DigiVault</b>
-            <small>Evidence</small>
+            <b>Veridoc</b>
+            <small>Evidence integrity</small>
           </span>
         </div>
         <div className="lp-app-search">
-          <LpIcon name="search" size={14} /> Search <kbd>⌘K</kbd>
+          <LpIcon name="search" size={14} /> Search cases <kbd>⌘K</kbd>
         </div>
-        <p className="lp-app-label">Main</p>
+        <p className="lp-app-label">Workspace</p>
         {(
           [
             ["folder-cases", "Cases", "file"],
@@ -135,10 +135,10 @@ function ProductPreview() {
         </div>
         <div className="lp-app-sep" />
         <div className="lp-app-nav">
-          <LpIcon name="settings" size={15} /> Settings <LpIcon name="chevron-down" size={14} className="lp-app-caret" />
+          <LpIcon name="settings" size={15} /> Security &amp; access <LpIcon name="chevron-down" size={14} className="lp-app-caret" />
         </div>
         <div className="lp-app-nav">
-          <LpIcon name="help" size={15} /> Help center <LpIcon name="chevron-down" size={14} className="lp-app-caret" />
+          <LpIcon name="help" size={15} /> Verification guide <LpIcon name="chevron-down" size={14} className="lp-app-caret" />
         </div>
         <div className="lp-app-user">
           <div className="lp-app-user-row">
@@ -168,7 +168,7 @@ function ProductPreview() {
             <LpIcon name="back" size={14} /> Cases
           </span>
           <span className="lp-app-top-r">
-            <span className="lp-app-sample">Sample data</span>
+            <span className="lp-app-sample">Illustrative record</span>
             <span className="lp-app-icon-btn">
               <LpIcon name="bell" size={15} />
             </span>
@@ -203,7 +203,7 @@ function ProductPreview() {
             <span>Shared</span>
           </div>
           <span className="lp-app-select">
-            <LpIcon name="calendar" size={14} /> Last 7 days <LpIcon name="chevron-down" size={14} />
+            <LpIcon name="calendar" size={14} /> All dates <LpIcon name="chevron-down" size={14} />
           </span>
         </div>
 
@@ -216,7 +216,7 @@ function ProductPreview() {
               <div className="lp-app-card">
                 <div className="lp-app-card-top">
                   <span>
-                    <b>Hash time</b>
+                    <b>Hashing time</b>
                     <small>witness-statement.pdf</small>
                   </span>
                   <span className="lp-app-mini-seg">
@@ -299,7 +299,7 @@ function ProductPreview() {
               ))}
             </div>
             <p className="lp-app-h">
-              <LpIcon name="bolt" size={15} /> Quick stats
+              <LpIcon name="bolt" size={15} /> Redaction summary
             </p>
             <div className="lp-app-stats">
               <div className="lp-app-stat">
@@ -308,7 +308,7 @@ function ProductPreview() {
                 </span>
                 <span>
                   <b>3</b>
-                  <small>Tiles masked</small>
+                  <small>Tiles redacted</small>
                 </span>
               </div>
               <div className="lp-app-stat">
@@ -317,7 +317,7 @@ function ProductPreview() {
                 </span>
                 <span>
                   <b>0</b>
-                  <small>Mismatches</small>
+                  <small>Hash mismatches</small>
                 </span>
               </div>
             </div>
@@ -502,7 +502,7 @@ function Features() {
             <p className="lp-float-foot">{f.foot}</p>
           </div>
         </div>
-        <div className="lp-tabs" role="tablist" aria-label="How DigiVault works">
+        <div className="lp-tabs" role="tablist" aria-label="How Veridoc works">
           {FEATURES.map((x, i) => {
             const on = i === active;
             return (
@@ -684,7 +684,7 @@ function TwoFiles() {
         </h2>
         <p className="lp-sub">
           Drop a page PNG and its proof file into the portal. It rebuilds the Merkle tree in your browser and reads the root from Polygon. It
-          never asks DigiVault.
+          never asks Veridoc.
         </p>
         <div className="lp-actions">
           <Link href="/verify" className="lp-btn lp-btn-dark">
@@ -890,7 +890,7 @@ function Roles() {
             </div>
             <div className="lp-rolereply">
               <p className="lp-rolereply-who">
-                <BrandMark size={14} /> DigiVault
+                <BrandMark size={14} /> Veridoc
               </p>
               <p className="lp-roletrace">
                 <LpIcon name="check" size={12} stroke={2.4} /> Read the role from the signed session
@@ -938,7 +938,7 @@ function Cta({ signedIn }: { signedIn: boolean }) {
       <div className="lp-cta">
         <TileField className="lp-fill lp-tf-cta" seed={29} density={0.08} accents={5} pulses={6} />
         <div className="lp-cta-brand">
-          <BrandMark size={26} /> DigiVault
+          <BrandMark size={26} /> Veridoc
         </div>
         <div className="lp-cta-row">
           <h2 id="lp-cta" className="lp-cta-h">
@@ -967,7 +967,7 @@ function Footer() {
         <div className="lp-footer-grid">
           <div>
             <Link href="/" className="lp-brand">
-              <BrandMark size={22} /> DigiVault
+              <BrandMark size={22} /> Veridoc
             </Link>
             <p className="lp-footer-tag">Tamper-evident evidence for the NCRB Women Safety Division.</p>
           </div>
@@ -995,7 +995,7 @@ function Footer() {
           <span className="lp-footer-status">
             <i className="lp-dot-ok" /> Anchoring on Polygon Amoy, chain 80002
           </span>
-          <span>© 2026 DigiVault</span>
+          <span>© 2026 Veridoc</span>
         </div>
       </div>
     </footer>
