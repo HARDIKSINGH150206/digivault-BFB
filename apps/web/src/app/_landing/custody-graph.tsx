@@ -43,8 +43,8 @@ type InputDef = {
 };
 
 const INPUTS: InputDef[] = [
-  { id: "file", row: 0, title: "Case file", icon: "file", port: "pages", color: "#f0b24a", hubLabel: "Page images", lines: ["FIR_2026_1123.pdf", "6 pages · scanned 300 dpi"] },
-  { id: "hash", row: 1, title: "Browser hash", icon: "fingerprint", port: "root", color: "#ef7a45", hubLabel: "Merkle root", lines: ["20 × 20 tiles per page", "SHA-256 on raw pixels"] },
+  { id: "file", row: 0, title: "Case file", icon: "file", port: "pages", color: "#f0b24a", hubLabel: "Page images", lines: ["FIR_2026_1123.pdf", "6 pages · rendered as lossless PNG"] },
+  { id: "hash", row: 1, title: "Browser hash", icon: "fingerprint", port: "root", color: "#ef7a45", hubLabel: "Merkle root", lines: ["20 × 20 tiles per page", "Salted SHA-256 on raw pixels"] },
   { id: "server", row: 2, title: "Server re-check", icon: "server", port: "match", color: "#e8578f", hubLabel: "Server match", chips: ["recompute", "compare", "409 on mismatch"] },
   { id: "officer", row: 3, title: "Officer sign-off", icon: "user-check", port: "consent", color: "#9b87f5", hubLabel: "Officer sign-off", note: "Mask 3 tiles on page 2. Confirmed with PIN step-up." },
 ];
@@ -319,11 +319,11 @@ export function CustodyGraph() {
         <div className="lp-g-intro">
           <div>
             <h2 id="lp-custody" className="lp-h2 lp-h2-tight">
-              Wire up a chain of custody in a minute
+              Build the chain of custody, step by step
             </h2>
             <p className="lp-sub">
-              Connect the case file, the browser hash, the server check and the officer&apos;s sign-off. DigiVault seals the version and anchors
-              it twice.
+              Connect each stage: the case file, the in-browser hash, the server re-check and the officer&apos;s sign-off. Once all four are linked,
+              Veridoc seals the version and anchors its Merkle root to MinIO Object Lock and Polygon Amoy.
             </p>
           </div>
           <div className="lp-g-controls">
