@@ -1,45 +1,78 @@
 <div align="center">
 
-# 🔐 DigiVault
+<img src="docs/images/landing.png" alt="DigiVault" width="100%">
+
+<br><br>
+
+# DigiVault
 
 **Tamper-evident evidence management for sensitive case documents.**
 
-Every page hashed. Every version chained. Every anchor public. Victim identity redacted before anything leaves the system.
+Every page hashed. Every version chained. Every anchor public.<br>
+Victim identity redacted before anything leaves the system.
 
-![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-AI%20service-009688?logo=fastapi&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
-![Solidity](https://img.shields.io/badge/Solidity-EvidenceAnchorV2-363636?logo=solidity&logoColor=white)
-![Polygon](https://img.shields.io/badge/Polygon-Amoy%20testnet-8247E5?logo=polygon&logoColor=white)
-![pnpm](https://img.shields.io/badge/pnpm-monorepo-F69220?logo=pnpm&logoColor=white)
+<br>
 
-[Overview](#solution-overview) · [Architecture](#architecture) · [Security](#key-security-properties) · [Getting Started](#getting-started-development) · [Smart Contract](#smart-contract) · [Roadmap](#roadmap)
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat-square&logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-AI_service-009688?style=flat-square&logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Solidity](https://img.shields.io/badge/Solidity-EvidenceAnchorV2-363636?style=flat-square&logo=solidity&logoColor=white)
+![Polygon](https://img.shields.io/badge/Polygon-Amoy_testnet-8247E5?style=flat-square&logo=polygon&logoColor=white)
+![Status](https://img.shields.io/badge/status-hackathon_MVP-0099FF?style=flat-square)
+
+[Overview](#solution-overview) &nbsp;|&nbsp; [Product](#product-tour) &nbsp;|&nbsp; [Architecture](#architecture) &nbsp;|&nbsp; [Security](#key-security-properties) &nbsp;|&nbsp; [Getting Started](#getting-started-development) &nbsp;|&nbsp; [Smart Contract](#smart-contract) &nbsp;|&nbsp; [Roadmap](#roadmap)
 
 </div>
 
 ---
 
-> Built for the Smart India Hackathon with the NCRB Women Safety Division. Status: hackathon MVP (see [Roadmap](#roadmap)).
-
 ## Highlights
 
-| | |
+| Capability | Description |
 |---|---|
-| 🧾 **Tamper-evident** | Lossless PNG pages are split into a 20×20 tile grid and hashed into salted SHA-256 Merkle trees. |
-| ⛓️ **Dual anchor** | Each version's commitment is written to MinIO (Object Lock) and to Polygon Amoy. |
-| 🕵️ **Server re-verification** | The browser hashes first; the server independently recomputes and rejects any mismatch. |
-| 🛡️ **Victim-safe sharing** | AI suggests redactions, an officer confirms with biometric step-up, and share links only serve redacted versions. |
-| 🏛️ **Public court verification** | `/verify` needs no account and no call to DigiVault's backend. |
-| 📜 **Insert-only audit log** | Hash-chained, with its head anchored on-chain every 6 hours. |
+| **Tamper-evident by construction** | Lossless PNG pages are split into a 20x20 tile grid and hashed into salted SHA-256 Merkle trees. |
+| **Dual anchor** | Each version's commitment is written to MinIO (Object Lock) and to Polygon Amoy. |
+| **Server re-verification** | The browser hashes first; the server independently recomputes and rejects any mismatch. |
+| **Victim-safe sharing** | AI suggests redactions, an officer confirms with biometric step-up, and share links serve only redacted versions. |
+| **Public court verification** | `/verify` needs no account and makes no call to DigiVault's backend. |
+| **Insert-only audit log** | Hash-chained, with its head anchored on-chain every 6 hours. |
+
+## Product Tour
+
+### Case workspace
+
+Investigating officers see open cases, statutory investigation deadlines (BNSS s.193(2)) and evidence awaiting redaction review or anchoring in one place.
+
+<img src="docs/images/dashboard.png" alt="DigiVault case dashboard" width="100%">
+
+### Case detail
+
+Each case lists its documents, offence sections, deadline status and a recent-activity trail drawn from case, document and version records.
+
+<img src="docs/images/case.png" alt="DigiVault case detail" width="100%">
+
+### Public court verification
+
+Courts and defence counsel verify a document against the on-chain record with no account and no contact with DigiVault servers.
+
+<img src="docs/images/verify.png" alt="DigiVault public court verification portal" width="100%">
+
+### Secure sign-in
+
+Officers sign in with a Service Number and PIN; sensitive actions require a biometric step-up.
+
+<img src="docs/images/login.png" alt="DigiVault sign-in" width="100%">
+
+> Screenshots are captured from a local development instance seeded with test data. Regenerate them with `node apps/web/scripts/capture-readme-screenshots.mjs`.
 
 ## Table of Contents
 
-- [Problem Statement](#problem-statement) · [Solution Overview](#solution-overview) · [Target Audience](#target-audience)
-- [Architecture](#architecture) · [How It Works](#how-it-works) · [Key Security Properties](#key-security-properties)
-- [Tech Stack](#tech-stack) · [Monorepo Structure](#monorepo-structure) · [Scalability](#scalability)
-- [Compliance and Legal](#compliance-and-legal) · [Getting Started](#getting-started-development)
-- [Demo Credentials](#demo-credentials) · [Smart Contract](#smart-contract) · [Roadmap](#roadmap)
+- [Problem Statement](#problem-statement), [Solution Overview](#solution-overview), [Target Audience](#target-audience)
+- [Architecture](#architecture), [How It Works](#how-it-works), [Key Security Properties](#key-security-properties)
+- [Tech Stack](#tech-stack), [Monorepo Structure](#monorepo-structure), [Scalability](#scalability)
+- [Compliance and Legal](#compliance-and-legal), [Getting Started](#getting-started-development)
+- [Demo Credentials](#demo-credentials), [Smart Contract](#smart-contract), [Roadmap](#roadmap)
 
 ## Problem Statement
 
