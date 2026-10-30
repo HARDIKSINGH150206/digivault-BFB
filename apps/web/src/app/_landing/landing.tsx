@@ -58,9 +58,9 @@ function Nav({ signedIn }: { signedIn: boolean }) {
   return (
     <header className="lp-nav">
       <div className="lp-wrap-wide lp-nav-inner">
-        <Link href="/" className="lp-brand" aria-label="Veridoc home">
+        <Link href="/" className="lp-brand" aria-label="DigiVault home">
           <BrandMark size={22} />
-          Veridoc
+          DigiVault
         </Link>
         <nav className="lp-links" aria-label="Sections">
           <a href="#how">How it works</a>
@@ -95,14 +95,14 @@ const SPARK = "M0,34 C10,30 16,12 26,16 C36,20 40,36 52,32 C62,28 66,10 78,14 C9
 
 function ProductPreview() {
   return (
-    <div className="lp-app" role="img" aria-label="Veridoc case workspace, illustrative record">
+    <div className="lp-app" role="img" aria-label="DigiVault case workspace, illustrative record">
       <aside className="lp-app-side" aria-hidden="true">
         <div className="lp-app-brand">
           <span className="lp-app-logo">
             <BrandMark size={16} />
           </span>
           <span>
-            <b>Veridoc</b>
+            <b>DigiVault</b>
             <small>Evidence integrity</small>
           </span>
         </div>
@@ -502,7 +502,7 @@ function Features() {
             <p className="lp-float-foot">{f.foot}</p>
           </div>
         </div>
-        <div className="lp-tabs" role="tablist" aria-label="How Veridoc works">
+        <div className="lp-tabs" role="tablist" aria-label="How DigiVault works">
           {FEATURES.map((x, i) => {
             const on = i === active;
             return (
@@ -684,7 +684,7 @@ function TwoFiles() {
         </h2>
         <p className="lp-sub">
           Drop a page PNG and its proof file into the portal. It rebuilds the Merkle tree in your browser and reads the root from Polygon. It
-          never asks Veridoc.
+          never asks DigiVault.
         </p>
         <div className="lp-actions">
           <Link href="/verify" className="lp-btn lp-btn-dark">
@@ -890,7 +890,7 @@ function Roles() {
             </div>
             <div className="lp-rolereply">
               <p className="lp-rolereply-who">
-                <BrandMark size={14} /> Veridoc
+                <BrandMark size={14} /> DigiVault
               </p>
               <p className="lp-roletrace">
                 <LpIcon name="check" size={12} stroke={2.4} /> Read the role from the signed session
@@ -938,7 +938,7 @@ function Cta({ signedIn }: { signedIn: boolean }) {
       <div className="lp-cta">
         <TileField className="lp-fill lp-tf-cta" seed={29} density={0.08} accents={5} pulses={6} />
         <div className="lp-cta-brand">
-          <BrandMark size={26} /> Veridoc
+          <BrandMark size={26} /> DigiVault
         </div>
         <div className="lp-cta-row">
           <h2 id="lp-cta" className="lp-cta-h">
@@ -967,7 +967,7 @@ function Footer() {
         <div className="lp-footer-grid">
           <div>
             <Link href="/" className="lp-brand">
-              <BrandMark size={22} /> Veridoc
+              <BrandMark size={22} /> DigiVault
             </Link>
             <p className="lp-footer-tag">Tamper-evident evidence for the NCRB Women Safety Division.</p>
           </div>
@@ -995,7 +995,7 @@ function Footer() {
           <span className="lp-footer-status">
             <i className="lp-dot-ok" /> Anchoring on Polygon Amoy, chain 80002
           </span>
-          <span>© 2026 Veridoc</span>
+          <span>© 2026 DigiVault</span>
         </div>
       </div>
     </footer>

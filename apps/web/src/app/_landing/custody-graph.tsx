@@ -323,7 +323,7 @@ export function CustodyGraph() {
             </h2>
             <p className="lp-sub">
               Connect each stage: the case file, the in-browser hash, the server re-check and the officer&apos;s sign-off. Once all four are linked,
-              Veridoc seals the version and anchors its Merkle root to MinIO Object Lock and Polygon Amoy.
+              DigiVault seals the version and anchors its Merkle root to MinIO Object Lock and Polygon Amoy.
             </p>
           </div>
           <div className="lp-g-controls">
