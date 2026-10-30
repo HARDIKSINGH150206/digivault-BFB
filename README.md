@@ -1,6 +1,45 @@
-# DigiVault
+<div align="center">
 
-Tamper-evident case document management for the NCRB Women Safety Division: every document version is hashed, hash-chained and anchored on a public blockchain, and victim-identifying content is redacted before a document leaves the system.
+# 🔐 DigiVault
+
+**Tamper-evident evidence management for sensitive case documents.**
+
+Every page hashed. Every version chained. Every anchor public. Victim identity redacted before anything leaves the system.
+
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-AI%20service-009688?logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![Solidity](https://img.shields.io/badge/Solidity-EvidenceAnchorV2-363636?logo=solidity&logoColor=white)
+![Polygon](https://img.shields.io/badge/Polygon-Amoy%20testnet-8247E5?logo=polygon&logoColor=white)
+![pnpm](https://img.shields.io/badge/pnpm-monorepo-F69220?logo=pnpm&logoColor=white)
+
+[Overview](#solution-overview) · [Architecture](#architecture) · [Security](#key-security-properties) · [Getting Started](#getting-started-development) · [Smart Contract](#smart-contract) · [Roadmap](#roadmap)
+
+</div>
+
+---
+
+> Built for the Smart India Hackathon with the NCRB Women Safety Division. Status: hackathon MVP (see [Roadmap](#roadmap)).
+
+## Highlights
+
+| | |
+|---|---|
+| 🧾 **Tamper-evident** | Lossless PNG pages are split into a 20×20 tile grid and hashed into salted SHA-256 Merkle trees. |
+| ⛓️ **Dual anchor** | Each version's commitment is written to MinIO (Object Lock) and to Polygon Amoy. |
+| 🕵️ **Server re-verification** | The browser hashes first; the server independently recomputes and rejects any mismatch. |
+| 🛡️ **Victim-safe sharing** | AI suggests redactions, an officer confirms with biometric step-up, and share links only serve redacted versions. |
+| 🏛️ **Public court verification** | `/verify` needs no account and no call to DigiVault's backend. |
+| 📜 **Insert-only audit log** | Hash-chained, with its head anchored on-chain every 6 hours. |
+
+## Table of Contents
+
+- [Problem Statement](#problem-statement) · [Solution Overview](#solution-overview) · [Target Audience](#target-audience)
+- [Architecture](#architecture) · [How It Works](#how-it-works) · [Key Security Properties](#key-security-properties)
+- [Tech Stack](#tech-stack) · [Monorepo Structure](#monorepo-structure) · [Scalability](#scalability)
+- [Compliance and Legal](#compliance-and-legal) · [Getting Started](#getting-started-development)
+- [Demo Credentials](#demo-credentials) · [Smart Contract](#smart-contract) · [Roadmap](#roadmap)
 
 ## Problem Statement
 
